@@ -1,0 +1,979 @@
+---
+title: "Nanopore tNGS implementation analysis"
+author: "Tiana"
+date: "2024-07-17"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(include=FALSE,
+                      echo = FALSE)
+```
+
+```{r load packages and datasets}
+pacman::p_load(pacman, here, tidyverse, janitor, clipr,
+               # For regression: 
+               lme4,
+               # For Table2: 
+               gtsummary,
+               # For Figures DTA:
+               DTAplots)
+
+# Key to relabel the facets
+site.labs <- c("Zambia", "South Africa")
+names(site.labs) <- c("CIDRZ", "NICD")
+
+types.labs <- c("decontaminated", "unprocessed")
+names(types.labs) <- c("sediment", "sputum")
+
+# Load data
+data <- read_csv(here("data/01_clean_tngs.csv"),
+                 show_col_types = FALSE)
+demographic_data <- read_csv(here("data/02_clean_demog.csv"),
+                             show_col_types = FALSE)
+data_long <- read_csv(here("data/03_clean_tngs_long.csv"),
+                      show_col_types = FALSE)  
+dta_df <- read_csv(here("data/04_clean_dta_data.csv"), 
+                   col_types = cols (lab_xpert_rif = col_character()))
+
+# Make relevant columns factors
+data <- data %>% 
+  mutate (lab_xpert_mtb_category = factor (lab_xpert_mtb_category, 
+                                           levels = c("high",
+                                                      "medium",
+                                                      "low")),
+          status_detailed = factor (status_detailed,levels = c("incomplete",
+                                                               "complete",
+                                                               "fail",
+                                                               "negative")))
+
+# Create subsets: only samples where sedi and sputum sequenced
+paired_data <- data %>% 
+  filter(is_paired)
+
+```
+
+## Table 2: Demographic and clinical information
+
+```{r, include=TRUE}
+# Reorder site levels and relabel
+demographic_data <- demographic_data %>%
+  mutate(site = factor(site, levels = c("NICD", "CIDRZ")))  # Reorder
+
+# Create a combined table, including NAs for specific variables and adding overall column
+combined_table <- demographic_data %>%
+  tbl_summary(
+    by = site,  # Stratify by 'site'
+    include = c(age, sex_at_birth, hiv_status, history_of_active_tb),  # Variables to include
+    missing = "always",  # Always show NAs for the variables
+    missing_text = "Missing"  # Label for missing values
+  ) %>%
+  add_overall() # Add an overall column
+
+# Print the table
+combined_table
+```
+
+## Table 3: Regression
+
+```{r}
+# Prepare the data for regression models
+regression_data <- paired_data %>% 
+  select(sequencing_id,
+          sample_type, 
+          site, 
+          lab_xpert_mtb_category, 
+          qc_status) %>% 
+  rename(load = lab_xpert_mtb_category) %>% 
+  mutate(outcome = ifelse (qc_status == "pass", 1, 0))
+```
+
+### Fitting the models
+
+```{r}
+## Crude (univariate) models for each predictor 
+crude_model_processed <- glmer(outcome ~ sample_type + (1 | sequencing_id),
+                               data = regression_data, family = binomial)
+
+# crude_model_site <- glmer(outcome ~ site + (1 | sequencing_id), 
+#                           data = regression_data, 
+#                           family = binomial)
+# This model fails to converge - so increase no. of iterations:
+
+control <- glmerControl(optimizer = "bobyqa", 
+                        optCtrl = list(maxfun = 100000))
+
+crude_model_site <- glmer(outcome ~ site + (1 | sequencing_id), 
+                          data = regression_data, 
+                          family = binomial,
+                          control = control)
+
+crude_model_load <- glmer(outcome ~ load + (1 | sequencing_id), 
+                          data = regression_data, family = binomial)
+
+## Multivariate logistic regression for binary outcome 
+model <- glmer(outcome ~ sample_type + site + load + (1 | sequencing_id),
+               data = regression_data, family = binomial)
+
+## Intercept model 
+model_intercept <- glmer (outcome ~ 1 + (1 | sequencing_id),
+                          data = regression_data, family = binomial)
+
+## Models excluding individual variables
+model_xprocessed <- 
+  glmer (outcome ~ site + load + (1 | sequencing_id),
+         data = regression_data, family = binomial)
+model_xsite <- 
+  glmer (outcome ~ sample_type  + load + (1 | sequencing_id),
+         data = regression_data, family = binomial)
+model_xload <-
+  glmer (outcome ~ sample_type + site + (1 | sequencing_id),
+         data = regression_data, family = binomial)
+```
+
+### Crude OR
+
+```{r, include=TRUE}
+
+# Function to extract OR and CI from a model
+extract_or_ci <- function(model) {
+  coefs <- summary(model)$coefficients
+  beta <- coefs[, "Estimate"]
+  se <- coefs[, "Std. Error"]
+  OR <- exp(beta)
+  CI_lower <- exp(beta - 1.96 * se)
+  CI_upper <- exp(beta + 1.96 * se)
+  p_value <- coefs[, "Pr(>|z|)"]
+  data.frame(Coefficient = beta, OR = OR, CI_lower = CI_lower, CI_upper = CI_upper, p_value = p_value)
+}
+
+# Extract OR and CI for each crude model
+crude_processed <- extract_or_ci(crude_model_processed)
+crude_site <- extract_or_ci(crude_model_site)
+crude_bacterial_load <- extract_or_ci(crude_model_load)
+
+# Combine crude results
+crude_results <- rbind(
+  crude_processed[2, ],
+  crude_site[2, ],
+  crude_bacterial_load[2:3, ]
+)
+
+crude_results <- round (crude_results, 2)
+
+crude_results[,-1] %>% 
+  tibble::rownames_to_column(var = "Variable") %>% 
+  flextable::flextable()
+```
+
+### Multivariate logistic regression with random effects
+
+```{r, include=TRUE}
+# Extract coefficients and standard errors
+adj_results <- extract_or_ci(model)
+
+# Round values for better readability
+adj_results <- round(adj_results, 2) 
+
+adj_results[-1,-1] %>% 
+  tibble::rownames_to_column(var = "Variable") %>%
+  flextable::flextable()
+```
+
+### Log likelihood ratio test for significance of variables
+
+```{r, include = TRUE}
+# Perform Likelihood Ratio Test
+
+# Test for significance of exposure variables in crude models
+lrt_x1 <- anova(model_intercept, crude_model_load)
+lrt_x2 <- anova(model_intercept, crude_model_site)
+lrt_x3 <- anova(model_intercept, crude_model_processed)
+
+
+# Test for significance of variables in multivariable model
+lrt_x1_multi <- anova(model_xload, model)
+lrt_x2_multi <- anova(model_xsite, model)
+lrt_x3_multi <- anova(model_xprocessed, model)
+
+pv_variables <- data.frame(
+  Variable = c("Bacterial Load", "Site", "Preprocessing"),
+  Univariate = round(c(lrt_x1$`Pr(>Chisq)`[2],
+                       lrt_x2$`Pr(>Chisq)`[2],
+                       lrt_x3$`Pr(>Chisq)`[2]), 3),
+  Multivariate = round(c(lrt_x1_multi$`Pr(>Chisq)`[2],
+                         lrt_x2_multi$`Pr(>Chisq)`[2],
+                         lrt_x3_multi$`Pr(>Chisq)`[2]), 3))
+
+pv_variables %>% 
+  flextable::flextable()
+```
+
+### Forrest plot for visualisation
+
+```{r, fig.width = 10, include=TRUE}
+# Forest plot of the adjusted values ----
+library (forestplot)
+
+# Create text labels
+table_text <- cbind(
+  c("Variable", rownames(adj_results)),
+  #c("Estimate", round(results$Coefficient, 2)),
+  c("OR", round(adj_results$OR, 2)),
+  c("CI (95%)", paste0("(", round(adj_results$CI_lower, 2), ", ", round(adj_results$CI_upper, 2), ")")),
+  c("P-value", format.pval(adj_results$p_value, digits = 2))
+)
+
+# Prepare the data for plotting
+plot_data <- data.frame(
+  mean = c(NA, adj_results$OR),
+  lower = c(NA, adj_results$CI_lower),
+  upper = c(NA, adj_results$CI_upper)
+)
+
+# Create the forest plot
+forestplot(
+  table_text[-2,],
+  plot_data[-2,],
+  new_page = TRUE,
+  is.summary = c(TRUE, rep(FALSE, nrow(adj_results))),
+  clip = c(0.1, 10),
+  xlog = TRUE,
+  col = forestplot::fpColors(box = "royalblue", lines = "darkblue", zero = "gray50"),
+  xlab = "Odds Ratio (log scale)"
+)
+```
+
+```{r}
+# Clean up variables no longer needed 
+rm(beta, CI_lower, CI_upper, OR, p_values, se, coefs)
+
+rm(crude_bacterial_load, crude_processed, crude_site, crude_results, pv_variables, adj_results)
+
+rm(model, model_intercept,
+   crude_model_load, crude_model_processed, crude_model_site,
+   model_xload, model_xprocessed, model_xsite,
+   control)
+
+rm(lrt_x1, lrt_x2, lrt_x3, 
+   lrt_x1_multi, lrt_x2_multi, lrt_x3_multi)
+```
+
+## Figure 1: Flow chart
+
+```{r}
+
+```
+
+## Figure 2: Index test (TBDR) success rates
+
+### Investigating sequencing success rates by preprocessing or site
+
+```{r Differences when preprocessing, include=TRUE}
+sample_type <- addmargins(table(paired_data$qc_status,
+                                paired_data$sample_type))
+
+print (sample_type)
+
+pass.sedi <- sample_type["pass", "sediment"]
+pass.sput <- sample_type["pass", "sputum"]
+total.sedi <- sample_type["Sum", "sediment"]
+total.sput <- sample_type["Sum", "sputum"]
+```
+
+We obtained successful sequencing results from `r pass.sedi`/`r total.sedi` (`r round (pass.sedi/total.sedi*100, 2)`%) decontaminated samples and `r pass.sput`/`r total.sput` (`r round (pass.sput/total.sput*100, 2)`%) unprocessed samples.
+
+#### Sputum
+
+```{r, include=TRUE}
+subset <- paired_data %>% 
+  filter (sample_type == "sputum")
+
+site <- addmargins (table (subset$qc_status, subset$site))
+
+print (site)
+
+pass.SA <- site["pass", "NICD"]
+pass.ZM <- site["pass", "CIDRZ"]
+total.SA <- site["Sum", "NICD"]
+total.ZM <- site["Sum", "CIDRZ"]
+```
+
+South Africa had a sequencing success rate of `r pass.SA`/`r total.SA` (`r round (pass.SA/total.SA*100, 2)`%) from sputum
+
+Zambia had a sequencing success rate of `r pass.ZM`/`r total.ZM` (`r round (pass.ZM/total.ZM*100, 2)`%) from sputum
+
+#### Decontaminated sediment
+
+```{r, include=TRUE}
+subset <- paired_data %>% 
+  filter (sample_type == "sediment")
+
+site <- addmargins (table (subset$qc_status, subset$site))
+
+print (site)
+
+pass.SA <- site["pass", "NICD"]
+pass.ZM <- site["pass", "CIDRZ"]
+total.SA <- site["Sum", "NICD"]
+total.ZM <- site["Sum", "CIDRZ"]
+```
+
+South Africa had a sequencing success rate of `r pass.SA`/`r total.SA` (`r round (pass.SA/total.SA*100, 2)`%) from sediment
+
+Zambia had a sequencing success rate of `r pass.ZM`/`r total.ZM` (`r round (pass.ZM/total.ZM*100, 2)`%) from sediment
+
+```{r}
+data %>% 
+  group_by(is_paired, sample_type) %>% 
+  summarise(number_pass = sum(qc_status == "pass"),
+            number_total = n(),
+            perc_pass = number_pass/number_total*100) %>% 
+  arrange (sample_type)
+```
+
+### Plot of sequencing success rates
+
+```{r}
+# Prepare the data: Sequencing success rates ----
+count_data <- paired_data %>% 
+  group_by(
+    lab_xpert_mtb_category,
+    site,
+    sample_type, 
+    qc_status) %>% 
+  summarize(count = n()) %>% 
+  ungroup() %>%
+  group_by(
+    lab_xpert_mtb_category,
+    site,
+    sample_type) %>%
+  mutate(percent = count / sum(count) * 100) %>%
+  ungroup()
+```
+
+```{r, fig.width = 8, fig.height = 8, include=TRUE}
+## Draw plot
+sequencing_success_plot <- ggplot(
+  count_data,
+  aes(x = sample_type, y = count, fill = qc_status)) +
+  # For individual bars
+  geom_bar(stat = "identity",
+           position = "stack",
+           color = "black") +
+  # Make them sit next to eachother
+  facet_grid (site ~ lab_xpert_mtb_category, 
+              labeller = labeller (site = site.labs)) 
+
+# Aesthetics and labels
+sequencing_success_plot <- sequencing_success_plot +
+  # Labels
+  labs(x = "",
+       y = "No. of samples",
+       fill = "Sequencing") +
+  # X-axis labels
+  scale_x_discrete(labels = types.labs) +
+  # Fill labels and colors
+  scale_fill_manual(values = c("#899DA4", "#5ab4ac"),
+                    labels = c("fail", "successful")) +
+  theme_bw () +
+  theme(
+    text = element_text(size = 28),
+    legend.position = "bottom",
+    #axis.text = element_text(size = 16) # Adjust the size of axis labels
+    axis.text.x = element_text (angle = 45, hjust = 1)
+  ) +
+  # Adding percentage labels
+  geom_text(
+    data = subset(count_data, qc_status == "pass"),
+    #only label the pass ones for clarity
+    aes(label = paste(round(percent), "%"),
+        group = qc_status),
+    position = position_stack(vjust = 0.5),
+    size = 6
+  )
+
+sequencing_success_plot 
+
+#ggsave("figures/plot_sequencing_success.png", sequencing_success_plot, width = 26.8, height = 24.4, units = "cm")
+```
+
+```{r}
+rm (sample_type, site, subset)
+```
+
+## Figure 3: Percentage of samples with interpretable tNGS results per drug target
+
+```{r}
+# Proportion of successfully sequenced gene targets
+# Prepare data for plot
+plot_data <- data_long %>% 
+  mutate (
+    drug = factor (drug, level = c("INH", "RIF", "EMB", "PZA", "STM", "AMK",
+                                   "CAP", "KAN", "ETH", "MXF", "LFX", "BDQ",
+                                   "CFZ", "DLM", "PMD", "LZD")),
+    result = case_when (qc_status == "fail" ~ "fail",
+                              result == "undetermined" ~"fail",
+                              qc_status == "pass" ~ result),
+    result = factor (result, level = c("fail", "resistant", "sensitive")))
+```
+
+```{r, include=TRUE}
+# Draw barplot showing number of resistant samples ----
+plot <- plot_data %>% 
+  ggplot (mapping = aes(x = drug,
+                        fill = result),
+  color = "black") +
+  geom_bar(position = "fill", color = "black") +
+  facet_grid (site ~ sample_type,
+              labeller = labeller (site = site.labs,
+                                   sample_type = types.labs)) +
+  scale_y_continuous(labels = scales::percent)
+
+# Aesthetics
+plot <- plot +
+  scale_fill_manual(values = c( "#bdbdbd","#DC863B","#5ab4ac")) +
+  theme_bw () +
+  theme(text = element_text(size = 18),
+        axis.title.x = element_blank(),
+        axis.text.x = element_text (angle = 45, hjust = 1),
+        legend.position = "bottom",) +
+  # Remove legend title
+  labs (fill = "TBDR predicted susceptibility",
+        x = "Preprocessing",
+        y = "Percentage of samples")
+
+plot
+
+#ggsave("figures/targetplot.png", plot, width = 26.8, height = 24.4, units = "cm")
+```
+
+# Figure 4: DTA figure
+
+Diagnostic Test Accuracy analysis if only decontaminated sediment results are used.
+
+```{r fig.width = 10, fig.height = 6, include = TRUE}
+drug_order <- c("RIF", "INH", "EMB", "PZA",
+                "STM", "AMK", "CAP", "KAN", 
+                "ETH", "LFX", "MXF", "BDQ", 
+                "CFZ", "LZD", "DLM", "PMD")
+
+# Select which tNGS result to take (either "result.sputum" or "result.sediment")
+dta_edit <- dta_df %>% 
+  rename (result = result.sediment) %>% 
+  mutate(drug = factor (drug, levels = drug_order))
+
+create_DTA_counts <- function(data_in) {
+  contingency_xpert <- data_in %>% 
+    select (drug, result, lab_xpert_rif) %>% 
+    # Convert to factor for caret::confusionMatrix function
+    mutate (result = as.factor (result), 
+            lab_xpert_rif = as.factor (lab_xpert_rif)) %>% 
+    filter (!is.na (lab_xpert_rif), 
+            !is.na (result))
+  
+  
+  contingency_dst <- data_in %>% 
+    select (drug, result, mgit_result, dst_result) %>% 
+    filter (!(result %in% c("undetermined", "fail")),
+            !is.na (dst_result), 
+            !is.na (result)) %>% 
+    mutate (result = as.factor (result), 
+            dst_result = as.factor (dst_result))
+  
+  contingency_xdr <- data_in %>% 
+    # group fluoroquinolones
+    #mutate(drug = case_when(drug %in% c("LFX", "MFX") ~ "FLQ",
+    #                          TRUE ~ drug)) %>%
+    select(drug, result, xdr_culture, xdr_result) %>% 
+    filter(!(result %in% c("undetermined", "fail")),
+           !is.na (xdr_result),
+           !is.na (result)) %>% 
+    mutate(xdr_result = case_when(xdr_result == "Detected (MTB+)" ~"sensitive",
+                                  TRUE ~ xdr_result),
+           result = as.factor(result), 
+           xdr_result = as.factor(xdr_result))
+  
+  # Grouping our data (contingency_dst)
+  overall_xpert <- contingency_xpert %>% 
+    summarise(TP=sum(result =="resistant" & lab_xpert_rif =="resistant"),
+              FP=sum(result =="resistant" & lab_xpert_rif =="sensitive"),
+              FN=sum(result =="sensitive" & lab_xpert_rif =="resistant"),
+              TN=sum(result =="sensitive" & lab_xpert_rif =="sensitive")) %>%
+    mutate(drug = "Xpert® MTB/RIF Ultra (RIF)")
+  
+  drug_data <- contingency_dst %>% 
+    group_by(drug) %>% 
+    summarise(TP=sum(result =="resistant" & dst_result =="resistant"),
+              FP=sum(result =="resistant" & dst_result =="sensitive"),
+              FN=sum(result =="sensitive" & dst_result =="resistant"),
+              TN=sum(result =="sensitive" & dst_result =="sensitive")) %>% 
+    # filter(!(TP == 0 & FN == 0), 
+    #        # Remove STM since not pDST tested for consistently)
+    #        drug != "STM") %>% 
+    arrange(factor(drug, levels = c("RIF", "INH", "EMB", "PZA"))) 
+  
+  overall_dst_data <- contingency_dst %>% 
+    summarise(TP= sum(result == "resistant" & dst_result == "resistant"),
+              FP= sum(result == "resistant" & dst_result == "sensitive"),
+              FN= sum(result == "sensitive" & dst_result == "resistant"),
+              TN= sum(result == "sensitive" & dst_result == "sensitive")) %>% 
+    mutate(drug = "phenotypic DST") 
+  
+  overall_xdr_data <- contingency_xdr %>% 
+    summarise(TP= sum(result =="resistant" & xdr_result == "resistant"),
+              FP= sum(result =="resistant" & xdr_result == "sensitive"),
+              FN= sum(result =="sensitive" & xdr_result == "resistant"),
+              TN= sum(result =="sensitive" & xdr_result == "sensitive")) %>% 
+    mutate(drug = "Xpert® MTB/XDR") 
+  
+  drug_data_xdr <- contingency_xdr %>% 
+    group_by(drug) %>%
+    summarise(TP =sum(result =="resistant" & xdr_result == "resistant"),
+              FP =sum(result =="resistant" & xdr_result == "sensitive"),
+              FN =sum(result =="sensitive" & xdr_result == "resistant"),
+              TN =sum(result =="sensitive" & xdr_result == "sensitive"))
+  # # Remove drugs for which there are no positive cases (test or reference)
+  # filter(!(TP == 0 & FN == 0)) 
+  
+  combined_dta_tables <- 
+    bind_rows(overall_xpert,
+              overall_dst_data,
+              drug_data, overall_xdr_data,
+              drug_data_xdr) %>% 
+    mutate (n = TP+TN+FP+FN)
+}
+
+combined_dta_tables <- create_DTA_counts(dta_edit)
+
+## Create a Forest Plot for sensitivity and specificity ----
+# Define the column headers:
+headers <- c("Reference Test (drug)", "TP", "FP", "FN", "TN", 
+             "Sensitivity (95% CI)", "Specificity (95% CI)", 
+             "Sensitivity (95% CI)", "Specificity (95% CI)")
+
+Forest (combined_dta_tables, 
+        study = combined_dta_tables$drug,
+        se.axis = c(0,1), sp.axis = c(0,1),
+        col.headers = headers)
+
+
+# To export for edit, increase "Plots" window to desired dimensions and then save as PDF. Open PDF in Adobe Illustrator to make changes. 
+```
+
+Other options - Diagnostic Test Accuracy when results are combined from processed and unprocessed samples, taking the sensitive result, if they don't match. Diagnostic Test Accuracy if only sediments are used.
+
+# Supplementary Tables
+
+## Supplementary Table 3: Number of DST results for each test
+
+```{r, include = T}
+dta_df %>% 
+  mutate(drug = factor(drug, levels = drug_order)) %>% 
+  group_by(drug) %>% 
+  summarise(tngs_sedi = sum(result.sediment %in% c("resistant", "sensitive")),
+            tngs_sput = sum(result.sputum %in% c("resistant", "sensitive")),
+            xpert = sum(lab_xpert_rif %in% c("resistant", "sensitive")),
+            pDST = sum(dst_result %in% c("resistant", "sensitive")),
+            XDR = sum(xdr_result %in% c("resistant", "sensitive"))) %>% 
+  arrange() %>% 
+  gt::gt()
+## ISSUE HERE: Not getting to the same number as "expanded with results"?
+```
+
+```{r}
+# Median number of missed targets 
+# Number of missed targets
+paired_data %>% 
+  group_by(sample_type) %>% 
+  summarise(median_missed = median(dr_targets.missed, na.rm = TRUE))
+```
+
+## Supplementary Table 4: Detected spoligotypes
+
+```{r, include = TRUE}
+# Spoligotype ----
+spoligo <- data %>% 
+  select(sequencing_id,
+         sample_type,
+         site,
+         qc_status, 
+         spoligotyping_qc,
+         spoligotyping, 
+         lineage) %>% 
+  rename(spoligotype = lineage) %>% 
+  mutate(spoligotype = case_when(
+    spoligotyping_qc %in% c("below_threshold",
+                            "no_coverage",
+                            "off_target") ~ "no result",
+    TRUE ~ spoligotype),
+    lineage = case_when(str_detect(spoligotype, "EAI") ~ "Lineage 1",
+                        spoligotype %in% c("Beijing") ~ "Lineage 2",
+                        str_detect(spoligotype, "CAS") ~ "Lineage 3",
+                        str_detect(spoligotype, "LAM") ~ "Lineage 4",
+                        spoligotype %in% c("Cameroon",
+                                           "H1", "H3",
+                                           "S", 
+                                           "T","T1", "T2","T3",
+                                           "X1","X2","X3") ~ "Lineage 4"))
+
+spoligo %>% 
+  mutate(spoligo_result = case_when(spoligotyping_qc == "qc_pass" ~ 1,
+                                    TRUE ~ 0)) %>% 
+  group_by(sample_type) %>% 
+  summarise(spoligo_pass = sum(spoligo_result == 1),
+            no_type = n_distinct(sequencing_id),
+            perc = spoligo_pass/no_type *100)
+
+
+spoligo %>% 
+  filter(sample_type == "sediment") %>% 
+  group_by(site, lineage, spoligotype) %>% 
+  summarise(count = n()) %>% 
+  pivot_wider(names_from = site, 
+              values_from = count) %>% 
+  arrange(desc(lineage), spoligotype) %>% 
+  adorn_totals() %>% 
+  #write_clip ()
+  gt::gt()
+  
+```
+
+## Supplementary Table 5: Variants detected
+
+```{r, include = TRUE}
+# Variants detected in sequenced samples ----
+data_long %>% 
+  filter(result == "resistant") %>% 
+  separate_longer_delim(variant, ";") %>%
+  group_by(variant, site) %>% 
+  #group_by(variant, site, supplementary) %>% 
+  summarise(samples = n_distinct(sequencing_id),
+            drugs = paste(unique(drug), collapse = ", ")) %>% 
+  pivot_wider(names_from = site,
+              values_from = samples) %>% 
+  #mutate (total = sum(NICD + CIDRZ)) %>% 
+  select(drugs, variant, CIDRZ, NICD) %>% 
+  arrange(drugs, desc(CIDRZ), desc(NICD)) %>% 
+  #adorn_totals() %>% 
+  #write_clip()
+  flextable::flextable()
+```
+
+## Supplementary Table 6: Discrepancies in sputum and decontaminated samples ----
+
+```{r, include = TRUE}
+# Number of sample-drug combinations with interpretation
+data_long %>% 
+  group_by(sequencing_id) %>%
+  filter (n_distinct (sample_type) > 1) %>%
+  ungroup () %>% 
+  group_by(sequencing_id, drug) %>% 
+  filter(all(result %in% c("resistant", "sensitive"))) %>% 
+  ungroup() %>% 
+  summarise(n_distinct(sequencing_id, drug))
+
+dta_df %>% 
+  #filter(is_paired) %>% 
+  filter(result.sediment %in% c("resistant", "sensitive") &
+         result.sputum %in% c("resistant", "sensitive")) %>%
+  tabyl (result.sediment, result.sputum)
+```
+
+```{r, include=TRUE}
+data_long %>% 
+  select(-sample_coverage) %>% 
+  # Compare sediment and sputum
+  pivot_wider(names_from = sample_type,
+              values_from = c(qc_status, result, variant),
+              names_sep = ".") %>% 
+  mutate(variant_call = case_when(variant.sediment == variant.sputum ~ 1,
+                                  TRUE ~ 0)) %>% 
+  filter(qc_status.sediment == "pass" & qc_status.sputum == "pass",
+          result.sediment %in% c("sensitive", "resistant") 
+         & result.sputum %in% c("sensitive", "resistant")) %>% 
+  filter (variant_call == 0) %>% 
+  select(-starts_with("qc_status"),
+         -variant_call) %>% 
+  flextable::flextable()
+```
+
+# Supplementary Figures
+
+## Supplementary Figure 1: % of samples with successfully sequenced gene target
+
+```{r}
+# Prepare the data
+targets_long <- paired_data %>% 
+  select(sequencing_id, 
+         sample_type, 
+         site, 
+         qc_status, 
+         status_detailed, 
+         passed_targets, 
+         failed_targets) %>% 
+  pivot_longer(cols = c(passed_targets, failed_targets),
+               names_to = "result", 
+               values_to = "target") %>% 
+  separate_rows(target, sep = ";") %>% 
+  # Remove the coverage information
+  mutate(target = sub(":.*", "", target)) %>% 
+  filter(!is.na(target)) %>% 
+  mutate(result = ifelse(result == "passed_targets", "pass", "fail"),
+         # Set all targets of failed samples as fail
+         result = case_when (qc_status == "fail" ~ "fail",
+                             TRUE ~ result),
+         target = factor (target, levels = c("inhA","fabG1","katG", 
+                                             "rpoB",  
+                                             "embB", "embA",
+                                             "pncA", 
+                                             "rpsL", "gid", 
+                                             "rrs", 
+                                             "tlyA", 
+                                             "eis", 
+                                             "ethA",
+                                             "gyrAB", 
+                                             "Rv0678",
+                                             "atpE",
+                                             "ddn", "fgd1", 
+                                             "fbiA", 
+                                             "fbiB",
+                                             "fbiC.1",
+                                             "fbiC.2",
+                                             "rplC", "rrl", 
+                                             "hsp65", 
+                                             "qc")))
+
+target_data <- targets_long %>% 
+  group_by(site, sample_type, target) %>% 
+  summarise(no_pass = sum(result == "pass"),
+            count = n(), 
+            percent = no_pass/count) %>% 
+  ungroup ()
+```
+
+```{r, include=TRUE}
+# Plot the figure
+target_plot <- target_data %>% 
+  ggplot (aes(x = target,
+              y = percent)) +
+  geom_bar (stat = "identity")
+
+# Aesthetics  
+target_plot <- target_plot +
+  facet_grid(site ~sample_type, 
+             labeller = labeller (site = site.labs,
+                                  sample_type = types.labs)) +
+  theme_bw() +
+  theme(text = element_text(size = 18),
+        axis.text.x = element_text (angle = 45, hjust = 1)) +
+  scale_y_continuous(labels = scales::percent) +
+  labs(x = "Gene targets",
+       y = "Percentage of samples")
+
+target_plot
+
+#ggsave("figures/supptargetplot.png", target_plot, width = 28.8, height = 24.4, units = "cm")
+```
+
+## Supplementary Figure 2: Number of targets with insufficient coverage for DR detection
+
+```{r, include=TRUE}
+# Boxplot to visualise number of missed targets  ----
+boxplot <- ggplot (paired_data,
+        aes (y = dr_targets.missed,
+             x = sample_type)) +
+  geom_boxplot () +
+  geom_jitter(width = 0.2, alpha = 0.6, shape = 4) +  # Add jittered points
+  facet_grid (site ~ lab_xpert_mtb_category, labeller = labeller (site = site.labs))
+
+# Aesthetics
+boxplot <- boxplot + 
+  labs(#title = "Number of targets missed",
+       x = "",
+       y = "No. targets Missed") +
+  scale_x_discrete(labels = types.labs) +
+  theme_bw() +
+  theme(text = element_text (size= 18),
+        axis.text.x = element_text (angle = 45, hjust = 1))
+
+boxplot
+
+#ggsave("figures/boxplot_missed_targets.png", boxplot, width = 26.8, height = 24.4, units = "cm")
+```
+
+## Supplementary Figure 3: DTA plots
+
+### Supplementary Figure 3A: DTA with sputum
+
+```{r}
+# Select which tNGS result to take (either "result.sputum" or "result.sediment")
+dta_edit <- dta_df %>% 
+  rename (result = result.sputum) %>% 
+  mutate(drug = factor (drug, levels = drug_order))
+
+combined_dta_tables <- create_DTA_counts(dta_edit)
+
+## Create a Forest Plot ----
+Forest (combined_dta_tables, 
+        study = combined_dta_tables$drug,
+        se.axis = c(0,1), sp.axis = c(0,1),
+        col.headers = headers)
+```
+
+### Supplementary Figure 3B: Sensitivity analysis w/o 20 supplementary samples
+
+```{r}
+# remove supp DR samples
+supp_DR_set <- data$sequencing_id[data$experiment == "IeDEA_JNB_20240703_EXP018_25GT"]
+
+dta_edit <- dta_df %>% 
+  filter(!sequencing_id %in% supp_DR_set) %>% 
+  rename (result = result.sediment) %>% 
+  mutate(drug = factor (drug, levels = drug_order))
+
+combined_dta_tables <- create_DTA_counts(dta_edit)
+
+## Create a Forest Plot ----
+Forest (combined_dta_tables, 
+        study = combined_dta_tables$drug,
+        se.axis = c(0,1), sp.axis = c(0,1),
+        col.headers = headers)
+```
+
+### Supplementary Figure 3C: DTA with combined reference standard
+
+```{r}
+combined_ref <- dta_df %>% 
+  mutate(combined_result = case_when(
+    # 1. if any test is "resistant" return "resistant"
+    lab_xpert_rif == "resistant" | dst_result == "resistant" | xdr_result == "resistant" ~ "resistant",
+    # 2. if any result is "sensitive" return "sensitive
+    lab_xpert_rif == "sensitive" | dst_result == "sensitive" | xdr_result == "sensitive" ~ "sensitive"
+  )) %>% 
+  select(sequencing_id, 
+         drug, 
+         result.sediment,
+         lab_xpert_rif, 
+         dst_result,
+         xdr_result,
+         combined_result)
+
+combined_ref <- combined_ref %>% 
+  rename(result = result.sediment) %>% 
+  mutate(drug = factor (drug, levels = drug_order))
+
+contingency_ref <- combined_ref %>% 
+  select (drug, result, combined_result) %>% 
+  filter (!(result %in% c("undetermined", "fail")),
+          !is.na (combined_result), 
+          !is.na (result)) %>% 
+  mutate (result = as.factor (result), 
+          dst_result = as.factor (combined_result))
+
+drug_data_ref <- contingency_ref %>% 
+  group_by(drug) %>% 
+  summarise(TP=sum(result =="resistant" & dst_result =="resistant"),
+            FP=sum(result =="resistant" & dst_result =="sensitive"),
+            FN=sum(result =="sensitive" & dst_result =="resistant"),
+            TN=sum(result =="sensitive" & dst_result =="sensitive")) %>% 
+  #filter(!(TP == 0 & FN == 0),
+  # Remove STM since not pDST tested for consistently)
+  #drug != "STM") %>% 
+  arrange(factor(drug, levels = c("RIF", "INH", "EMB", "PZA"))) 
+
+overall_dst_data_ref <- contingency_ref %>% 
+  summarise(TP= sum(result == "resistant" & dst_result == "resistant"),
+            FP= sum(result == "resistant" & dst_result == "sensitive"),
+            FN= sum(result == "sensitive" & dst_result == "resistant"),
+            TN= sum(result == "sensitive" & dst_result == "sensitive")) %>% 
+  mutate(drug = "Combined DST") 
+
+
+combined_dta_table_ref <- bind_rows(overall_dst_data_ref,
+                                    drug_data_ref) %>% 
+  mutate(n = TP+TN+FP+FN)
+
+# Draw forest plot
+Forest(combined_dta_table_ref, 
+       study = combined_dta_table_ref$drug,
+       se.axis = c(0,1), sp.axis = c(0,1),
+       col.headers = headers)
+
+```
+
+# Other data
+
+## DR samples
+
+```{r, include=TRUE}
+# Number of DR samples
+data_long %>% 
+  group_by(result) %>% 
+  summarise(n_distinct(sequencing_id)) %>% 
+  flextable::flextable()
+
+data_long %>% 
+  filter(result == "resistant") %>% 
+  group_by(drug) %>% 
+  summarise (count = n_distinct(sequencing_id)) %>% 
+  arrange (desc(count))
+
+# data_long %>% 
+#   filter(result == "resistant") %>% 
+#   group_by(sequencing_id) %>% 
+#   summarise (drugs = paste(unique(drug), collapse = ", ")) %>%
+#   gt::gt()
+```
+
+## Figure 2Alt: Success rates with complete/incomplete coverage
+
+```{r}
+# Sequencing coverage
+# Prepare data ----
+bar_data <- paired_data %>% 
+  # all groups of combinations
+  group_by (lab_xpert_mtb_category, site, sample_type, status_detailed) %>% 
+  summarize (count = n()) %>% 
+  ungroup () %>%
+  # Add percentages
+  group_by (lab_xpert_mtb_category, site, sample_type) %>% 
+  mutate(percent = count / sum(count) * 100) %>%
+  ungroup() %>% 
+  mutate (status_detailed = factor (status_detailed, levels = c("fail", "incomplete", "complete")))
+```
+
+```{r, include=TRUE}
+# Draw plot ----
+bar_plot <- ggplot (
+  bar_data, 
+  mapping = aes (x = sample_type, y = count, fill = status_detailed)) +
+  geom_bar(stat = "identity", position = "stack",
+            color = "black") +
+  facet_grid(site ~ lab_xpert_mtb_category, 
+             labeller = labeller(site = site.labs)) 
+
+# Aesthetics
+bar_plot <- bar_plot +
+  # Define look of the plot
+  scale_fill_manual(values = c("#899DA4", "#DC863B", "#5ab4ac")) +
+  theme_bw () +
+  # Define labels and their size
+  labs (x = "", 
+        fill = "Coverage", 
+        y = "No. of samples") +
+  theme(text = element_text (size= 18),
+        legend.position = "bottom",
+        axis.text.x = element_text (angle = 45, hjust = 1)) +
+  # Add percentage labels
+  geom_text(
+    data = subset(bar_data, status_detailed %in% c("complete", "incomplete")), #only label some of the groups
+    aes(label = paste(round(percent), "%"), 
+        group = status_detailed),
+    position = position_stack(vjust = 0.5), 
+    size = 4)
+
+bar_plot
+
+#ggsave("figures/plot_sequencing_success_detail.png", bar_plot, width = 26.8, height = 24.4, units = "cm")
+```

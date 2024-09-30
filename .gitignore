@@ -1,3 +1,6 @@
+# Data - not to share for now
+data/*
+
 # History files
 .Rhistory
 .Rapp.history
