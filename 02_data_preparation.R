@@ -39,8 +39,18 @@ redcap_df <- read_csv (here("data//1734TuberculosisPati-TBtNGSsequencing_DATA_20
 redcap_labs_df <- read_csv (here("data//1734TuberculosisPati-TBtNGSsequencing_DATA_LABELS_2024-09-25_0909.csv")) %>% 
   janitor::clean_names()
 
+## Additional information from 20 supplementary DR samples
+pDST_df.raw <- readxl::read_xlsx("data/IeDEA_JNB_20240703_EXP018_25GT_pDST_WGS_GXP.xlsx") 
+
+pDST_df.clean <- pDST_df.raw %>% 
+  rename(sequencing_id = alias,
+         mgit_result = `Culture result`,
+         lab_xpert_mtb_category = `GXP Ultra MTB Quant`,
+         lab_xpert_rif = `GXP Ultra RIF`) %>% 
+  select(-barcode)
 
 ## Xpert MTB/RIF Ultra ----
+### Xpert Ultra data from Zambia
 cidrz_xpert <- redcap_labs_df %>% 
   filter(event_name == "Baseline (Arm 1: RSA, Zambia)",
          data_access_group == "Global_Zambia") %>% 
@@ -63,12 +73,14 @@ corrected_values <- list (
 )
 cidrz_xpert[cidrz_xpert$sequencing_id == "3511-225", ] <- corrected_values
 
+### Xpert Ultra data from South Africa
 nicd_xpert <- nicd_tracker_df %>% 
   mutate(sample_volume = case_when (tngs == FALSE ~ "insufficient")) %>% 
-  select (lab_id, study_id, 
+  select (lab_id, 
           starts_with( "lab_xpert_ultra"),
           -lab_xpert_ultra_sample_type,
-          sample_volume) %>% 
+          #-sample_volume
+          ) %>% 
   rename (sequencing_id = lab_id,
           #lab_xpert_sample_type = lab_xpert_ultra_sample_type,
           lab_xpert_mtb_result = lab_xpert_ultra_mtb_result,
@@ -77,7 +89,18 @@ nicd_xpert <- nicd_tracker_df %>%
           lab_xpert_rif = lab_xpert_ultra_rif_resistance,) %>% 
   mutate(across(c(lab_xpert_mtb_result, lab_xpert_mtb_category, lab_xpert_rif), ~ tolower(.)))
 
-xpert_df <- bind_rows(cidrz_xpert, nicd_xpert) %>% 
+# Supplementary DR samples (retrospective)
+supp_xpert_data <- pDST_df.clean %>% 
+  select(sequencing_id,
+         lab_xpert_mtb_category,
+         lab_xpert_rif) %>% 
+  mutate(lab_xpert_mtb_result = "detected (mtb+)",
+         lab_xpert_mtb_category = tolower(lab_xpert_mtb_category),
+         lab_xpert_rif = tolower(lab_xpert_rif),
+         lab_xpert_rif = case_when(lab_xpert_rif == "not resistant" ~ "sensitive",
+                                       TRUE ~ lab_xpert_rif))
+
+xpert_df <- bind_rows(cidrz_xpert, nicd_xpert, supp_xpert_data) %>% 
   mutate(across(c(lab_xpert_mtb_result, lab_xpert_mtb_category, lab_xpert_rif), ~ as.factor(.)),
          # Add information to sequencing results on eligibility
          is_eligible = case_when (
@@ -86,14 +109,14 @@ xpert_df <- bind_rows(cidrz_xpert, nicd_xpert) %>%
            lab_xpert_mtb_category %in% c("low", "medium", "high") ~ TRUE
          ))
 
-# Eligible samples have a Xpert Ultra bacterial load category of "high", "medium" or "low"
-xpert_mini <- xpert_df %>% 
-  select (sequencing_id,
-          lab_xpert_mtb_result,
-          lab_xpert_mtb_category, 
-          sample_volume,
-          is_eligible)
-  
+# # Eligible samples have a Xpert Ultra bacterial load category of "high", "medium" or "low"
+# xpert_mini <- xpert_df %>% 
+#   select (sequencing_id,
+#           lab_xpert_mtb_result,
+#           lab_xpert_mtb_category, 
+#           sample_volume,
+#           is_eligible)
+
 # CHECK THIS WITH CIDRZ - 3511-308 and 3511-367 are "MTB not detected" but have a GXPU category of "Medium" or "Low"
 
 ## Xpert MTB/XDR information ----
@@ -126,6 +149,7 @@ recode_function_dst <- function(x) {
   )
 }
 
+# Phenotypic DST data from Zambia
 redcap_dst_df <- redcap_df %>% 
   filter(redcap_event_name == "baseline_arm_1",
          redcap_data_access_group == "global_zambia") %>% 
@@ -142,7 +166,7 @@ redcap_dst_df <- redcap_df %>%
   rename (sequencing_id = record_id, 
           mgit_result = mb_tbcult_t1_result)
 
-# Preparing the DST results from the NICD tracker
+# Phenotypic DST results from South Africa (tracker file)
 nicd_dst_df <- nicd_tracker_df %>% 
   select(lab_id,
          starts_with ("culture_")) %>% 
@@ -156,6 +180,12 @@ nicd_dst_df <- nicd_tracker_df %>%
   mutate (mgit_result = case_when (mgit_result == "Positve MTB" ~ "Positive MTB",
                                    TRUE ~ mgit_result))
 
+# Phenotypic DST and WGS results for supplementary DR samples (retrospective)
+supp_DST_data <- pDST_df.clean %>% 
+  select(-starts_with("lab_xpert")) %>% 
+  mutate(mgit_result = case_when(mgit_result == "Pos" | mgit_result == "pos" ~ "Positive MTB", 
+                                 TRUE ~ mgit_result))
+
 dst_df <- bind_rows(redcap_dst_df, nicd_dst_df)
 
 ## Save DST datasets ---- 
@@ -165,7 +195,7 @@ dst_df <- bind_rows(redcap_dst_df, nicd_dst_df)
 #write_csv(dst_df, here("01_data/clean_dst.csv"))
 
 
-# Prepare index test (TBDR) resuls ----
+# Prepare index test (TBDR) results ----
 ## Load data from new output ----
 df_csv  <- read_csv("data/wf_tb_amr_v2.0.0-alpha4_csv.csv")
 df_json <- read_csv("data/wf_tb_amr_v2.0.0-alpha4_json.csv")
@@ -313,15 +343,15 @@ seq_unique <- seq_df %>%
   slice(1) %>% 
   ungroup () %>% 
   ## Add eligibility (GXPU) information)
-  left_join (xpert_mini, by = "sequencing_id")
+  left_join (xpert_df %>% select(-lab_xpert_mtb_ct, -lab_xpert_rif), by = "sequencing_id")
   
 
 ## Save cleaned dataset of sequencing data of eligible samples  ----
 tngs_df <- seq_unique %>%
+  # IeDEA_JNB_20240703_EXP018_25GT is the run of supplementary DR samples 
   filter(is_eligible | experiment == "IeDEA_JNB_20240703_EXP018_25GT",
           pc_control,
           ntc_control) %>% 
-  mutate(supplementary = experiment == "IeDEA_JNB_20240703_EXP018_25GT") %>% 
   ## Add if paired (sediment and sputum available)
   group_by(sequencing_id) %>%
   mutate (is_paired = n_distinct (sample_type) > 1) %>%
@@ -333,7 +363,11 @@ tngs_df <- seq_unique %>%
 tngs_df %>% summarise(n_distinct(sequencing_id))
 
 # Cleanup and save files
-write_csv (tngs_df, file = "data/01_clean_tngs.csv")
+tngs_df %>% 
+  select(-ends_with("variant"),
+         -ends_with("result")) %>% 
+  write_csv (file = "data/01_clean_tngs.csv")
+
 
 # DST results in long format ----
 
@@ -397,17 +431,15 @@ dst_long <- dst_df %>%
     cols = c(INH, RIF, EMB, PZA, STM),
     names_to = "drug",
     values_to = "dst_result"
-  )
+  ) %>% 
+  mutate(dst_method = "pDST")
 
-## Add EXP018 pDST information
-pDST_df.raw <- readxl::read_xlsx("data/IeDEA_JNB_20240703_EXP018_25GT_pDST_WGS.xlsx") 
-
-exp018_pDST_long <- pDST_df.raw %>% 
-  rename(sequencing_id = alias,
-         mgit_result = `Culture result`) %>% 
-  select(-barcode) %>% 
+supp_DST_long <- pDST_df.clean %>% 
+  select(-starts_with("lab_xpert")) %>% 
   pivot_longer(cols = -(c(sequencing_id, mgit_result)),names_to = "drug", values_to = "dst_result") %>%
-  mutate(drug = str_sub(drug, 2),
+  mutate(dst_method = case_when(str_sub(drug, 1, 1) == "p" ~ "pDST",
+                                str_sub(drug, 1, 1) == "g" ~ "WGS"),
+         drug = str_sub(drug, 2),
          # Rename drugs
          drug = case_when(drug == "LEV" ~ "LFX",
                           TRUE ~ drug),
@@ -419,8 +451,8 @@ exp018_pDST_long <- pDST_df.raw %>%
          mgit_result = case_when(mgit_result == "Pos" ~ "Positive MTB",
                                  TRUE ~ mgit_result)) 
 
-dst_long.combined <- 
-  bind_rows(dst_long, exp018_pDST_long)
+
+dst_long.combined <- bind_rows(dst_long, supp_DST_long)
 
 rm(pDST_df.raw)
 
@@ -560,7 +592,7 @@ write_csv(demographic_data, here("data/02_clean_demog.csv"))
 
 
 # Clean up ----
-rm(df_csv, df_json, df_species_spol, 
+rm(df_csv, df_json, df_spol, 
    targets_missed,
    nicd_tracker_df,
    cidrz_xpert, nicd_xpert, nicd_dst_df,

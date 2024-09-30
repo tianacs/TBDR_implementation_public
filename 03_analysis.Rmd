@@ -26,6 +26,11 @@ names(site.labs) <- c("CIDRZ", "NICD")
 types.labs <- c("decontaminated", "unprocessed")
 names(types.labs) <- c("sediment", "sputum")
 
+drug_order <- c("RIF", "INH", "EMB", "PZA",
+                "STM", "AMK", "CAP", "KAN", 
+                "ETH", "LFX", "MXF", "BDQ", 
+                "CFZ", "LZD", "DLM", "PMD")
+
 # Load data
 data <- read_csv(here("data/01_clean_tngs.csv"),
                  show_col_types = FALSE)
@@ -209,7 +214,7 @@ pv_variables %>%
   flextable::flextable()
 ```
 
-### Forrest plot for visualisation
+### Forest plot for visualisation
 
 ```{r, fig.width = 10, include=TRUE}
 # Forest plot of the adjusted values ----
@@ -259,17 +264,26 @@ rm(lrt_x1, lrt_x2, lrt_x3,
    lrt_x1_multi, lrt_x2_multi, lrt_x3_multi)
 ```
 
-## Figure 1: Flow chart
-
-```{r}
-
-```
 
 ## Figure 2: Index test (TBDR) success rates
 
-### Investigating sequencing success rates by preprocessing or site
+```{r, include = T}
+# Overall sequencing success rates
+data %>% 
+  select(sequencing_id,
+         sample_type, 
+         site, 
+         qc_status) %>% 
+  group_by(sample_type) %>% 
+  summarise(no_positive = sum(qc_status == "pass", na.rm = T), 
+            total = n(), 
+            perc = round(no_positive/total*100, 1)) %>% 
+  flextable::flextable()
+```
 
-```{r Differences when preprocessing, include=TRUE}
+### Only for paired subset: Investigating sequencing success rates by preprocessing or site
+
+```{r Differences when preprocessing}
 sample_type <- addmargins(table(paired_data$qc_status,
                                 paired_data$sample_type))
 
@@ -283,53 +297,20 @@ total.sput <- sample_type["Sum", "sputum"]
 
 We obtained successful sequencing results from `r pass.sedi`/`r total.sedi` (`r round (pass.sedi/total.sedi*100, 2)`%) decontaminated samples and `r pass.sput`/`r total.sput` (`r round (pass.sput/total.sput*100, 2)`%) unprocessed samples.
 
-#### Sputum
+#### Sequencing success rates stratified by site
 
 ```{r, include=TRUE}
-subset <- paired_data %>% 
-  filter (sample_type == "sputum")
+by_site <- paired_data %>% 
+  select(sequencing_id,
+         sample_type, 
+         site, 
+         qc_status) %>% 
+  group_by(sample_type, site) %>% 
+  summarise(no_positive = sum(qc_status == "pass", na.rm = T), 
+            total = n(), 
+            perc = round(no_positive/total*100, 1)) 
 
-site <- addmargins (table (subset$qc_status, subset$site))
-
-print (site)
-
-pass.SA <- site["pass", "NICD"]
-pass.ZM <- site["pass", "CIDRZ"]
-total.SA <- site["Sum", "NICD"]
-total.ZM <- site["Sum", "CIDRZ"]
-```
-
-South Africa had a sequencing success rate of `r pass.SA`/`r total.SA` (`r round (pass.SA/total.SA*100, 2)`%) from sputum
-
-Zambia had a sequencing success rate of `r pass.ZM`/`r total.ZM` (`r round (pass.ZM/total.ZM*100, 2)`%) from sputum
-
-#### Decontaminated sediment
-
-```{r, include=TRUE}
-subset <- paired_data %>% 
-  filter (sample_type == "sediment")
-
-site <- addmargins (table (subset$qc_status, subset$site))
-
-print (site)
-
-pass.SA <- site["pass", "NICD"]
-pass.ZM <- site["pass", "CIDRZ"]
-total.SA <- site["Sum", "NICD"]
-total.ZM <- site["Sum", "CIDRZ"]
-```
-
-South Africa had a sequencing success rate of `r pass.SA`/`r total.SA` (`r round (pass.SA/total.SA*100, 2)`%) from sediment
-
-Zambia had a sequencing success rate of `r pass.ZM`/`r total.ZM` (`r round (pass.ZM/total.ZM*100, 2)`%) from sediment
-
-```{r}
-data %>% 
-  group_by(is_paired, sample_type) %>% 
-  summarise(number_pass = sum(qc_status == "pass"),
-            number_total = n(),
-            perc_pass = number_pass/number_total*100) %>% 
-  arrange (sample_type)
+by_site %>% gt::gt()
 ```
 
 ### Plot of sequencing success rates
@@ -453,11 +434,6 @@ plot
 Diagnostic Test Accuracy analysis if only decontaminated sediment results are used.
 
 ```{r fig.width = 10, fig.height = 6, include = TRUE}
-drug_order <- c("RIF", "INH", "EMB", "PZA",
-                "STM", "AMK", "CAP", "KAN", 
-                "ETH", "LFX", "MXF", "BDQ", 
-                "CFZ", "LZD", "DLM", "PMD")
-
 # Select which tNGS result to take (either "result.sputum" or "result.sediment")
 dta_edit <- dta_df %>% 
   rename (result = result.sediment) %>% 
@@ -574,10 +550,11 @@ dta_df %>%
   summarise(tngs_sedi = sum(result.sediment %in% c("resistant", "sensitive")),
             tngs_sput = sum(result.sputum %in% c("resistant", "sensitive")),
             xpert = sum(lab_xpert_rif %in% c("resistant", "sensitive")),
-            pDST = sum(dst_result %in% c("resistant", "sensitive")),
+            pDST = sum(dst_result %in% c("resistant", "sensitive") & dst_method == "pDST", na.rm = T),
+            wgs = sum(dst_result %in% c("resistant", "sensitive") & dst_method == "WGS", na.rm = T),
             XDR = sum(xdr_result %in% c("resistant", "sensitive"))) %>% 
-  arrange() %>% 
-  gt::gt()
+  arrange() %>%
+  flextable::flextable()
 ## ISSUE HERE: Not getting to the same number as "expanded with results"?
 ```
 
@@ -632,7 +609,7 @@ spoligo %>%
   summarise(count = n()) %>% 
   pivot_wider(names_from = site, 
               values_from = count) %>% 
-  arrange(desc(lineage), spoligotype) %>% 
+  arrange(lineage, spoligotype) %>% 
   adorn_totals() %>% 
   #write_clip ()
   gt::gt()
@@ -806,7 +783,7 @@ boxplot
 
 ### Supplementary Figure 3A: DTA with sputum
 
-```{r}
+```{r, include = T}
 # Select which tNGS result to take (either "result.sputum" or "result.sediment")
 dta_edit <- dta_df %>% 
   rename (result = result.sputum) %>% 
@@ -823,7 +800,7 @@ Forest (combined_dta_tables,
 
 ### Supplementary Figure 3B: Sensitivity analysis w/o 20 supplementary samples
 
-```{r}
+```{r, include = T}
 # remove supp DR samples
 supp_DR_set <- data$sequencing_id[data$experiment == "IeDEA_JNB_20240703_EXP018_25GT"]
 
@@ -843,7 +820,7 @@ Forest (combined_dta_tables,
 
 ### Supplementary Figure 3C: DTA with combined reference standard
 
-```{r}
+```{r, include = T}
 combined_ref <- dta_df %>% 
   mutate(combined_result = case_when(
     # 1. if any test is "resistant" return "resistant"
