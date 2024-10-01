@@ -40,9 +40,10 @@ redcap_labs_df <- read_csv (here("data//1734TuberculosisPati-TBtNGSsequencing_DA
   janitor::clean_names()
 
 ## Additional information from 20 supplementary DR samples
-pDST_df.raw <- readxl::read_xlsx("data/IeDEA_JNB_20240703_EXP018_25GT_pDST_WGS_GXP.xlsx") 
+supp_DST_df.raw <- readxl::read_xlsx("data/IeDEA_JNB_20240703_EXP018_25GT_pDST_WGS_GXP.xlsx") 
 
-pDST_df.clean <- pDST_df.raw %>% 
+supp_DST_df.clean <- supp_DST_df.raw %>% 
+  # This include Xpert Ultra, pDST and WGS data 
   rename(sequencing_id = alias,
          mgit_result = `Culture result`,
          lab_xpert_mtb_category = `GXP Ultra MTB Quant`,
@@ -90,7 +91,7 @@ nicd_xpert <- nicd_tracker_df %>%
   mutate(across(c(lab_xpert_mtb_result, lab_xpert_mtb_category, lab_xpert_rif), ~ tolower(.)))
 
 # Supplementary DR samples (retrospective)
-supp_xpert_data <- pDST_df.clean %>% 
+supp_xpert_data <- supp_DST_df.clean %>% 
   select(sequencing_id,
          lab_xpert_mtb_category,
          lab_xpert_rif) %>% 
@@ -107,17 +108,17 @@ xpert_df <- bind_rows(cidrz_xpert, nicd_xpert, supp_xpert_data) %>%
            lab_xpert_mtb_result == "not detected (mtb-)" ~ FALSE,
            lab_xpert_mtb_category %in% c("trace", "very low") ~ FALSE,
            lab_xpert_mtb_category %in% c("low", "medium", "high") ~ TRUE
+           # Eligible samples have a Xpert Ultra bacterial load category of "high", "medium" or "low"
+           # CHECK THIS WITH CIDRZ - 3511-308 and 3511-367 are "MTB not detected" but have a GXPU category of "Medium" or "Low"
          ))
 
-# # Eligible samples have a Xpert Ultra bacterial load category of "high", "medium" or "low"
+# Previously used a "smaller" df, but this seems unnecessary
 # xpert_mini <- xpert_df %>% 
 #   select (sequencing_id,
 #           lab_xpert_mtb_result,
 #           lab_xpert_mtb_category, 
 #           sample_volume,
 #           is_eligible)
-
-# CHECK THIS WITH CIDRZ - 3511-308 and 3511-367 are "MTB not detected" but have a GXPU category of "Medium" or "Low"
 
 ## Xpert MTB/XDR information ----
 nicd_xdr_df <- nicd_tracker_df %>% 
@@ -181,10 +182,12 @@ nicd_dst_df <- nicd_tracker_df %>%
                                    TRUE ~ mgit_result))
 
 # Phenotypic DST and WGS results for supplementary DR samples (retrospective)
-supp_DST_data <- pDST_df.clean %>% 
+supp_DST_data <- supp_DST_df.clean %>% 
   select(-starts_with("lab_xpert")) %>% 
   mutate(mgit_result = case_when(mgit_result == "Pos" | mgit_result == "pos" ~ "Positive MTB", 
                                  TRUE ~ mgit_result))
+# Currently I'm not using this anywhere, but keep it for now.
+# Redundant with supp_DST_long in line 440
 
 dst_df <- bind_rows(redcap_dst_df, nicd_dst_df)
 
@@ -434,7 +437,7 @@ dst_long <- dst_df %>%
   ) %>% 
   mutate(dst_method = "pDST")
 
-supp_DST_long <- pDST_df.clean %>% 
+supp_DST_long <- supp_DST_df.clean %>% 
   select(-starts_with("lab_xpert")) %>% 
   pivot_longer(cols = -(c(sequencing_id, mgit_result)),names_to = "drug", values_to = "dst_result") %>%
   mutate(dst_method = case_when(str_sub(drug, 1, 1) == "p" ~ "pDST",
@@ -448,7 +451,8 @@ supp_DST_long <- pDST_df.clean %>%
          dst_result = case_when(dst_result == "R" ~ "resistant",
                                 dst_result == "S" ~ "sensitive",
                                 TRUE ~ "resistant"),
-         mgit_result = case_when(mgit_result == "Pos" ~ "Positive MTB",
+         mgit_result = case_when(mgit_result == "Pos" ~ "Positive MTB" ,
+                                 mgit_result == "pos" ~ "Positive MTB",
                                  TRUE ~ mgit_result)) 
 
 
