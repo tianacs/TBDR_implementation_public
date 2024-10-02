@@ -264,7 +264,6 @@ rm(lrt_x1, lrt_x2, lrt_x3,
    lrt_x1_multi, lrt_x2_multi, lrt_x3_multi)
 ```
 
-
 ## Figure 2: Index test (TBDR) success rates
 
 ```{r, include = T}
@@ -393,11 +392,19 @@ plot_data <- data_long %>%
     drug = factor (drug, level = c("INH", "RIF", "EMB", "PZA", "STM", "AMK",
                                    "CAP", "KAN", "ETH", "MXF", "LFX", "BDQ",
                                    "CFZ", "DLM", "PMD", "LZD")),
-    result = case_when (qc_status == "fail" ~ "fail",
-                              result == "undetermined" ~"fail",
-                              qc_status == "pass" ~ result),
-    result = factor (result, level = c("fail", "resistant", "sensitive")))
+    result = case_when(result == "fail" ~ 
+                         "fail or insufficient sample coverage",
+                       #result == "undetermined" ~ "fail",
+                       TRUE ~ result),
+    result = factor(result, level = c("fail or insufficient sample coverage",
+                                      "undetermined", 
+                                      "resistant", 
+                                      "sensitive")))
 ```
+
+We use the complete set of samples, since we want to represent all the resistances that we detected with TBDR here. The sequencing failure rates are different to the reported rates (report success rates in main text) since the reported rates are based on "qc_status", the sample pass status. For the individual targets, sample coverage could be insufficient and any resistances are not reported in the HTML document. This reduces the success rates for the samples.
+
+However I do need to consider whether to reclassify samples where the sample coverage failed, as "failed" or "undetermined".
 
 ```{r, include=TRUE}
 # Draw barplot showing number of resistant samples ----
@@ -413,12 +420,14 @@ plot <- plot_data %>%
 
 # Aesthetics
 plot <- plot +
-  scale_fill_manual(values = c( "#bdbdbd","#DC863B","#5ab4ac")) +
+  scale_fill_manual(values = c("#bdbdbd",#"#f5f5f5", 
+                               "#dfc27d", "#DC863B","#5ab4ac")) +
   theme_bw () +
   theme(text = element_text(size = 18),
         axis.title.x = element_blank(),
         axis.text.x = element_text (angle = 45, hjust = 1),
         legend.position = "bottom",) +
+  guides(fill = guide_legend(nrow = 4)) +  # Multiple rows for the legend
   # Remove legend title
   labs (fill = "TBDR predicted susceptibility",
         x = "Preprocessing",
@@ -426,7 +435,7 @@ plot <- plot +
 
 plot
 
-#ggsave("figures/targetplot.png", plot, width = 26.8, height = 24.4, units = "cm")
+#ggsave("targetplot.png", plot, width = 26.8, height = 24.4, units = "cm")
 ```
 
 # Figure 4: DTA figure
@@ -728,6 +737,8 @@ target_data <- targets_long %>%
             percent = no_pass/count) %>% 
   ungroup ()
 ```
+
+We use the paired_data set for this, since we are describing the more consistent target coverage for decontaminated samples in South Africa, compared to Zambia.
 
 ```{r, include=TRUE}
 # Plot the figure
