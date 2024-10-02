@@ -33,10 +33,10 @@ nicd_tracker_df <- nicd_tracker_df %>%
   distinct(lab_id, .keep_all = TRUE)
 
 # RedCap data (export regulary)
-redcap_df <- read_csv (here("data//1734TuberculosisPati-TBtNGSsequencing_DATA_2024-09-25_0908.csv")) %>% 
+redcap_df <- read_csv (here("data//1734TuberculosisPati-TBtNGSsequencing_DATA_2024-10-02_1449.csv")) %>% 
   janitor::clean_names() 
 # Get the labelled extract
-redcap_labs_df <- read_csv (here("data//1734TuberculosisPati-TBtNGSsequencing_DATA_LABELS_2024-09-25_0909.csv")) %>% 
+redcap_labs_df <- read_csv (here("data//1734TuberculosisPati-TBtNGSsequencing_DATA_LABELS_2024-10-02_1449.csv")) %>% 
   janitor::clean_names()
 
 ## Additional information from 20 supplementary DR samples

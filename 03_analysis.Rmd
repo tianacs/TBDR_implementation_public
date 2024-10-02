@@ -63,15 +63,22 @@ paired_data <- data %>%
 ```{r, include=TRUE}
 # Reorder site levels and relabel
 demographic_data <- demographic_data %>%
-  mutate(site = factor(site, levels = c("NICD", "CIDRZ")))  # Reorder
+  mutate(site = factor(site, levels = c("NICD", "CIDRZ")),    # Reorder
+         sex_at_birth = case_when(is.na(sex_at_birth) ~ "Unknown",
+                                  TRUE ~ sex_at_birth),
+         hiv_status = case_when(is.na(hiv_status) ~ "Unknown",
+                                  TRUE ~ hiv_status),
+         history_of_active_tb = case_when(is.na(history_of_active_tb) ~ "Unknown",
+                                  TRUE ~ history_of_active_tb),
+         )  
 
 # Create a combined table, including NAs for specific variables and adding overall column
 combined_table <- demographic_data %>%
   tbl_summary(
     by = site,  # Stratify by 'site'
     include = c(age, sex_at_birth, hiv_status, history_of_active_tb),  # Variables to include
-    missing = "always",  # Always show NAs for the variables
-    missing_text = "Missing"  # Label for missing values
+    #missing = "no",  # Always show NAs for the variables
+    #missing_text = "Missing"  # Label for missing values
   ) %>%
   add_overall() # Add an overall column
 
@@ -392,14 +399,16 @@ plot_data <- data_long %>%
     drug = factor (drug, level = c("INH", "RIF", "EMB", "PZA", "STM", "AMK",
                                    "CAP", "KAN", "ETH", "MXF", "LFX", "BDQ",
                                    "CFZ", "DLM", "PMD", "LZD")),
-    result = case_when(result == "fail" ~ 
-                         "fail or insufficient sample coverage",
-                       #result == "undetermined" ~ "fail",
-                       TRUE ~ result),
-    result = factor(result, level = c("fail or insufficient sample coverage",
-                                      "undetermined", 
-                                      "resistant", 
-                                      "sensitive")))
+    result = case_when(qc_status == "fail" ~ "sample sequencing failed",
+                       result == "fail" ~ "insufficient target coverage for drug susceptibility prediction",
+                       result == "undetermined" ~ "drug susceptibility undetermined",
+                       result == "resistant" ~ "drug resistant",
+                       result == "sensitive" ~ "drug sensitive"),
+    result = factor(result, level = c("sample sequencing failed",
+                                      "insufficient target coverage for drug susceptibility prediction",
+                                      "drug susceptibility undetermined", 
+                                      "drug resistant", 
+                                      "drug sensitive")))
 ```
 
 We use the complete set of samples, since we want to represent all the resistances that we detected with TBDR here. The sequencing failure rates are different to the reported rates (report success rates in main text) since the reported rates are based on "qc_status", the sample pass status. For the individual targets, sample coverage could be insufficient and any resistances are not reported in the HTML document. This reduces the success rates for the samples.
@@ -420,16 +429,16 @@ plot <- plot_data %>%
 
 # Aesthetics
 plot <- plot +
-  scale_fill_manual(values = c("#bdbdbd",#"#f5f5f5", 
+  scale_fill_manual(values = c("#bdbdbd","#DEDEDE", 
                                "#dfc27d", "#DC863B","#5ab4ac")) +
   theme_bw () +
   theme(text = element_text(size = 18),
         axis.title.x = element_blank(),
         axis.text.x = element_text (angle = 45, hjust = 1),
         legend.position = "bottom",) +
-  guides(fill = guide_legend(nrow = 4)) +  # Multiple rows for the legend
+  guides(fill = guide_legend(nrow = 5)) +  # Multiple rows for the legend
   # Remove legend title
-  labs (fill = "TBDR predicted susceptibility",
+  labs (fill = "TBDR outcome",
         x = "Preprocessing",
         y = "Percentage of samples")
 
@@ -485,7 +494,7 @@ create_DTA_counts <- function(data_in) {
               FP=sum(result =="resistant" & lab_xpert_rif =="sensitive"),
               FN=sum(result =="sensitive" & lab_xpert_rif =="resistant"),
               TN=sum(result =="sensitive" & lab_xpert_rif =="sensitive")) %>%
-    mutate(drug = "Xpert® MTB/RIF Ultra (RIF)")
+    mutate(drug = "Xpert® MTB/RIF Ultra (rifampicin)")
   
   drug_data <- contingency_dst %>% 
     group_by(drug) %>% 
@@ -526,10 +535,27 @@ create_DTA_counts <- function(data_in) {
               overall_dst_data,
               drug_data, overall_xdr_data,
               drug_data_xdr) %>% 
-    mutate (n = TP+TN+FP+FN)
+    mutate (n = TP+TN+FP+FN) %>% 
+    mutate(drug = recode(drug, 
+                       RIF = "rifampicin (RIF)",
+                       INH = "isoniazid (INH)",
+                       EMB = "ethambutol (EMB)",
+                       PZA = "pyrazinamide (PZA)",
+                       STM = "streptomycin (STM)",
+                       AMK = "amikacin (AMK)",
+                       CAP = "capreomycin (CAP)",
+                       KAN = "kanamycin (KAN)",
+                       ETH = "ethionamide (ETH)",
+                       LFX = "levofloxacin (LFX)",
+                       MXF = "moxifoxacin (MFX)",
+                       BDQ = "bedaquiline (BDQ)",
+                       CFZ = "clofazimine (CFZ)",
+                       LZD = "linezolid (LZD)",
+                       DLM = "delamanid (DLM)"
+                       ))
 }
 
-combined_dta_tables <- create_DTA_counts(dta_edit)
+combined_dta_tables <- create_DTA_counts(dta_edit) 
 
 ## Create a Forest Plot for sensitivity and specificity ----
 # Define the column headers:
@@ -553,6 +579,8 @@ Other options - Diagnostic Test Accuracy when results are combined from processe
 ## Supplementary Table 3: Number of DST results for each test
 
 ```{r, include = T}
+library (clipr)
+
 dta_df %>% 
   mutate(drug = factor(drug, levels = drug_order)) %>% 
   group_by(drug) %>% 
@@ -563,6 +591,7 @@ dta_df %>%
             wgs = sum(dst_result %in% c("resistant", "sensitive") & dst_method == "WGS", na.rm = T),
             XDR = sum(xdr_result %in% c("resistant", "sensitive"))) %>% 
   arrange() %>%
+  write_clip ()
   flextable::flextable()
 ## ISSUE HERE: Not getting to the same number as "expanded with results"?
 ```
@@ -800,7 +829,7 @@ dta_edit <- dta_df %>%
   rename (result = result.sputum) %>% 
   mutate(drug = factor (drug, levels = drug_order))
 
-combined_dta_tables <- create_DTA_counts(dta_edit)
+combined_dta_tables <- create_DTA_counts(dta_edit) 
 
 ## Create a Forest Plot ----
 Forest (combined_dta_tables, 
@@ -875,12 +904,29 @@ overall_dst_data_ref <- contingency_ref %>%
             FP= sum(result == "resistant" & dst_result == "sensitive"),
             FN= sum(result == "sensitive" & dst_result == "resistant"),
             TN= sum(result == "sensitive" & dst_result == "sensitive")) %>% 
-  mutate(drug = "Combined DST") 
+  mutate(drug = "Overall") 
 
 
 combined_dta_table_ref <- bind_rows(overall_dst_data_ref,
                                     drug_data_ref) %>% 
-  mutate(n = TP+TN+FP+FN)
+  mutate(n = TP+TN+FP+FN) %>% 
+  mutate(drug = recode(drug, 
+                       RIF = "rifampicin (RIF)",
+                       INH = "isoniazid (INH)",
+                       EMB = "ethambutol (EMB)",
+                       PZA = "pyrazinamide (PZA)",
+                       STM = "streptomycin (STM)",
+                       AMK = "amikacin (AMK)",
+                       CAP = "capreomycin (CAP)",
+                       KAN = "kanamycin (KAN)",
+                       ETH = "ethionamide (ETH)",
+                       LFX = "levofloxacin (LFX)",
+                       MXF = "moxifoxacin (MFX)",
+                       BDQ = "bedaquiline (BDQ)",
+                       CFZ = "clofazimine (CFZ)",
+                       LZD = "linezolid (LZD)",
+                       DLM = "delamanid (DLM)"
+                       ))
 
 # Draw forest plot
 Forest(combined_dta_table_ref, 
