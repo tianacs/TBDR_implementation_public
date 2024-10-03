@@ -43,14 +43,14 @@ dta_df <- read_csv(here("data/04_clean_dta_data.csv"),
 
 # Make relevant columns factors
 data <- data %>% 
-  mutate (lab_xpert_mtb_category = factor (lab_xpert_mtb_category, 
-                                           levels = c("high",
-                                                      "medium",
-                                                      "low")),
-          status_detailed = factor (status_detailed,levels = c("incomplete",
-                                                               "complete",
-                                                               "fail",
-                                                               "negative")))
+  mutate(lab_xpert_mtb_category = factor(lab_xpert_mtb_category, 
+                                         levels = c("high",
+                                                    "medium",
+                                                    "low")),
+         status_detailed = factor(status_detailed,levels = c("incomplete",
+                                                             "complete",
+                                                             "fail",
+                                                             "negative")))
 
 # Create subsets: only samples where sedi and sputum sequenced
 paired_data <- data %>% 
@@ -400,6 +400,7 @@ plot_data <- data_long %>%
                                    "CAP", "KAN", "ETH", "MXF", "LFX", "BDQ",
                                    "CFZ", "DLM", "PMD", "LZD")),
     result = case_when(qc_status == "fail" ~ "sample sequencing failed",
+                       # QC pass but sample coverage insufficient
                        result == "fail" ~ "insufficient target coverage for drug susceptibility prediction",
                        result == "undetermined" ~ "drug susceptibility undetermined",
                        result == "resistant" ~ "drug resistant",
@@ -581,7 +582,7 @@ Other options - Diagnostic Test Accuracy when results are combined from processe
 ```{r, include = T}
 library (clipr)
 
-dta_df %>% 
+table <- dta_df %>% 
   mutate(drug = factor(drug, levels = drug_order)) %>% 
   group_by(drug) %>% 
   summarise(tngs_sedi = sum(result.sediment %in% c("resistant", "sensitive")),
@@ -590,7 +591,7 @@ dta_df %>%
             pDST = sum(dst_result %in% c("resistant", "sensitive") & dst_method == "pDST", na.rm = T),
             wgs = sum(dst_result %in% c("resistant", "sensitive") & dst_method == "WGS", na.rm = T),
             XDR = sum(xdr_result %in% c("resistant", "sensitive"))) %>% 
-  arrange() %>%
+  arrange() 
   write_clip ()
   flextable::flextable()
 ## ISSUE HERE: Not getting to the same number as "expanded with results"?

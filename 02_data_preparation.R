@@ -392,16 +392,16 @@ tngs_long <- tngs_df %>%
     names_sep = "_"
   ) %>%
   pivot_wider(names_from = type,
-               values_from = value) %>%
-  mutate(result = case_when (qc_status == "fail" ~ "fail",
-                              sample_coverage == FALSE ~ "fail",
-                              result == "no_resistance_detected" ~ "sensitive",
-                              TRUE ~ result),
-          variant = case_when(result == "fail" ~ "fail", 
-                              result == "undetermined" ~ "undetermined",
-                              TRUE ~ variant),
-          drug = case_when (drug == "ETO" ~ "ETH",
-                            TRUE ~ drug)
+              values_from = value) %>%
+  mutate(result = case_when(qc_status == "fail" ~ "fail",
+                            sample_coverage == FALSE ~ "sc_fail",
+                            result == "no_resistance_detected" ~ "sensitive",
+                            TRUE ~ result),
+         variant = case_when(result == "fail" ~ "fail", 
+                             result == "undetermined" ~ "undetermined",
+                             TRUE ~ variant),
+         drug = case_when(drug == "ETO" ~ "ETH",
+                          TRUE ~ drug)
   )
 
 write_csv(tngs_long, here("data/03_clean_tngs_long.csv"))
