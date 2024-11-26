@@ -11,13 +11,14 @@ knitr::opts_chunk$set(include=FALSE,
 ```
 
 ```{r load packages and datasets}
-pacman::p_load(pacman, here, tidyverse, janitor, clipr,
+pacman::p_load(pacman, here, tidyverse, janitor, #clipr,
                # For regression: 
                lme4,
                # For Table2: 
                gtsummary,
                # For Figures DTA:
-               DTAplots)
+               DTAplots,
+               flextable, forestplot, gt)
 
 # Key to relabel the facets
 site.labs <- c("Zambia", "South Africa")
@@ -401,7 +402,7 @@ plot_data <- data_long %>%
                                    "CFZ", "DLM", "PMD", "LZD")),
     result = case_when(qc_status == "fail" ~ "sample sequencing failed",
                        # QC pass but sample coverage insufficient
-                       result == "fail" ~ "insufficient target coverage for drug susceptibility prediction",
+                       result == "sc_fail" ~ "insufficient target coverage for drug susceptibility prediction",
                        result == "undetermined" ~ "drug susceptibility undetermined",
                        result == "resistant" ~ "drug resistant",
                        result == "sensitive" ~ "drug sensitive"),
@@ -580,7 +581,7 @@ Other options - Diagnostic Test Accuracy when results are combined from processe
 ## Supplementary Table 3: Number of DST results for each test
 
 ```{r, include = T}
-library (clipr)
+#library (clipr)
 
 table <- dta_df %>% 
   mutate(drug = factor(drug, levels = drug_order)) %>% 
@@ -592,7 +593,7 @@ table <- dta_df %>%
             wgs = sum(dst_result %in% c("resistant", "sensitive") & dst_method == "WGS", na.rm = T),
             XDR = sum(xdr_result %in% c("resistant", "sensitive"))) %>% 
   arrange() 
-  write_clip ()
+  #write_clip ()
   flextable::flextable()
 ## ISSUE HERE: Not getting to the same number as "expanded with results"?
 ```
