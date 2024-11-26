@@ -17,7 +17,7 @@ pacman::p_load(pacman, tidyverse, here, openxlsx, janitor, caret)
 # Prepare reference test results (local DST) ----
 # Online Trackers (updated regularly)
 nicd_tracker_df <- readxl::read_excel(
-  here ("data/NICD_Sample_Tracker_20240904.xlsx"), na = "N/A") %>% 
+  here ("data/NICD_Sample_Tracker_20241126.xlsx"), na = "N/A") %>% 
   janitor::clean_names() 
 
 # Check for duplicates
@@ -33,10 +33,10 @@ nicd_tracker_df <- nicd_tracker_df %>%
   distinct(lab_id, .keep_all = TRUE)
 
 # RedCap data (export regulary)
-redcap_df <- read_csv (here("data//1734TuberculosisPati-TBtNGSsequencing_DATA_2024-10-02_1449.csv")) %>% 
+redcap_df <- read_csv (here("data//1734TuberculosisPati-TBtNGSsequencing_DATA_2024-11-26_2045.csv")) %>% 
   janitor::clean_names() 
 # Get the labelled extract
-redcap_labs_df <- read_csv (here("data//1734TuberculosisPati-TBtNGSsequencing_DATA_LABELS_2024-10-02_1449.csv")) %>% 
+redcap_labs_df <- read_csv (here("data//1734TuberculosisPati-TBtNGSsequencing_DATA_LABELS_2024-11-26_2046.csv")) %>% 
   janitor::clean_names()
 
 ## Additional information from 20 supplementary DR samples
