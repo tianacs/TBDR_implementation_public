@@ -549,7 +549,7 @@ redcap_demog_df <-
 
 additional.clinical.info <-
   # Additional information collected from file review
-  read_csv (here ("data/additional_clinical_data.csv")) %>%
+  read_csv (here ("data/additional_clinical_data_v2.csv")) %>%
   select (-REDCAPID,
           -StudyID) %>%
   rename (

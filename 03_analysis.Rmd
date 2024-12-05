@@ -74,12 +74,18 @@ demographic_data <- demographic_data %>%
          )  
 
 # Create a combined table, including NAs for specific variables and adding overall column
+
+# Set theme
+theme_gtsummary_journal(journal = "jama")
+theme_gtsummary_compact()
+
 combined_table <- demographic_data %>%
   tbl_summary(
     by = site,  # Stratify by 'site'
     include = c(age, sex_at_birth, hiv_status, history_of_active_tb),  # Variables to include
     #missing = "no",  # Always show NAs for the variables
     #missing_text = "Missing"  # Label for missing values
+    digits = all_dichotomous() ~ 2
   ) %>%
   add_overall() # Add an overall column
 
