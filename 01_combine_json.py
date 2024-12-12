@@ -48,7 +48,19 @@ def extract_data(data, name):
     ntc_control = data['workflow_checks'][0]['check_pass']
     pc_control = data['workflow_checks'][1]['check_pass']
     for sample in data['samples']:
+        lineage = None
+        speciesID = None
+        speciesTax = None
         if sample['sample_type'] == 'test_sample':
+            # Extract the lineage from the JSON data
+            if sample['results']['spoligotype']['sitvit2']:
+                lineage = sample['results']['spoligotype']['sitvit2'][0]['lineage']
+            else:
+                lineage = None
+            # Extract the species identified
+            if sample['results']['species_identification']['detected_species']:
+                speciesTax = sample['results']['species_identification']['detected_species'][0]['taxonomic_id']
+                speciesID = sample['results']['species_identification']['detected_species'][0]['scientific_name']
             extracted_data.append({
                 'sample_id': sample['alias'],
                 #'sample_type': sample['sample_type'],
@@ -74,13 +86,18 @@ def extract_data(data, name):
                 'PMD': sample['results']['antimicrobial_resistance']['PMD']['antimicrobial_resistance_status'], 
                 'PZA': sample['results']['antimicrobial_resistance']['PZA']['antimicrobial_resistance_status'], 
                 'RIF': sample['results']['antimicrobial_resistance']['RIF']['antimicrobial_resistance_status'], 
-                'STM': sample['results']['antimicrobial_resistance']['STM']['antimicrobial_resistance_status']
+                'STM': sample['results']['antimicrobial_resistance']['STM']['antimicrobial_resistance_status'],
+                'spoligotyping': sample['results']['spoligotype']['octal'],
+                'lineage': lineage,
+                'spoligotyping_qc': sample['results']['spoligotype']['spoligotype_status'], # did the sample pass quality check for spoligotyping
+                'speciesTax' : speciesTax,
+                'speciesID' : speciesID,
             }) 
     df = pd.DataFrame(extracted_data)
     return df
 
 # Example usage
 #directory_path = r'E:\Sequencing data\output'
-directory_path = r'D:\Sequencing data\Results from updated pipeline (IFIK)\Output\IeDEA_reanalyzed_in_CH_output'
+directory_path = r'D:\TBDR sequencing data\Results from updated pipeline (IFIK)\Output\IeDEA_reanalyzed_in_CH_output'
 df = combine_data_from_directory(directory_path)
-df.to_csv('data/wf_tb_amr_v2.0.0-alpha4_json.csv', index=False)
+df.to_csv('data/wf_tb_amr_v2.0.0-alpha4_json_v2.csv', index=False)

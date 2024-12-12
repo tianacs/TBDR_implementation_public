@@ -389,7 +389,7 @@ sequencing_success_plot <- sequencing_success_plot +
 
 sequencing_success_plot 
 
-#ggsave("figures/plot_sequencing_success.png", sequencing_success_plot, width = 26.8, height = 24.4, units = "cm")
+ggsave("figures/plot_sequencing_success.tiff", sequencing_success_plot, width = 26.8, height = 24.4, units = "cm", dpi = 300)
 ```
 
 ```{r}
@@ -411,12 +411,12 @@ plot_data <- data_long %>%
                        result == "sc_fail" ~ "insufficient target coverage for drug susceptibility prediction",
                        result == "undetermined" ~ "drug susceptibility undetermined",
                        result == "resistant" ~ "drug resistant",
-                       result == "sensitive" ~ "drug sensitive"),
+                       result == "sensitive" ~ "drug susceptible"),
     result = factor(result, level = c("sample sequencing failed",
                                       "insufficient target coverage for drug susceptibility prediction",
                                       "drug susceptibility undetermined", 
                                       "drug resistant", 
-                                      "drug sensitive")))
+                                      "drug susceptible")))
 ```
 
 We use the complete set of samples, since we want to represent all the resistances that we detected with TBDR here. The sequencing failure rates are different to the reported rates (report success rates in main text) since the reported rates are based on "qc_status", the sample pass status. For the individual targets, sample coverage could be insufficient and any resistances are not reported in the HTML document. This reduces the success rates for the samples.
@@ -452,7 +452,7 @@ plot <- plot +
 
 plot
 
-#ggsave("targetplot.png", plot, width = 26.8, height = 24.4, units = "cm")
+ggsave("figures/targetplot.tiff", plot, width = 26.8, height = 24.4, units = "cm", dpi = 300)
 ```
 
 # Figure 4: DTA figure
@@ -574,7 +574,10 @@ headers <- c("Reference Test (drug)", "TP", "FP", "FN", "TN",
 Forest (combined_dta_tables, 
         study = combined_dta_tables$drug,
         se.axis = c(0,1), sp.axis = c(0,1),
-        col.headers = headers)
+        col.headers = headers,
+        #save_plot = "./figures/DTA_sediment",
+        res = 300
+        )
 
 
 # To export for edit, increase "Plots" window to desired dimensions and then save as PDF. Open PDF in Adobe Illustrator to make changes. 

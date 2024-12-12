@@ -32,8 +32,8 @@ def combine_csv_files(source_folder):
 
 # Example usage
 #source_folder = r'E:\Sequencing data\output'
-source_folder = r'D:\Sequencing data\Results from updated pipeline (IFIK)\Output\IeDEA_reanalyzed_in_CH_output'
+source_folder = r'D:\TBDR sequencing data\Results from updated pipeline (IFIK)\Output\IeDEA_reanalyzed_in_CH_output'
 df = combine_csv_files(source_folder)
 
 # Save the combined DataFrame to a CSV file
-df.to_csv('data/wf_tb_amr_v2.0.0-alpha4_csv.csv', index=False)
+df.to_csv('data/wf_tb_amr_v2.0.0-alpha4_csv_v2.csv', index=False)

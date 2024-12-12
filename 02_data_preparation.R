@@ -200,14 +200,13 @@ dst_df <- bind_rows(redcap_dst_df, nicd_dst_df)
 
 # Prepare index test (TBDR) results ----
 ## Load data from new output ----
-df_csv  <- read_csv("data/wf_tb_amr_v2.0.0-alpha4_csv.csv")
-df_json <- read_csv("data/wf_tb_amr_v2.0.0-alpha4_json.csv")
-df_spol <- read_csv("data/wf_tb_amr_v2.0.0-alpha4_spoligo.csv")
+df_csv  <- read_csv("data/wf_tb_amr_v2.0.0-alpha4_csv_v2.csv")
+df_json <- read_csv("data/wf_tb_amr_v2.0.0-alpha4_json_v2.csv")
 
 df_full <-
   full_join (
     df_csv,
-    df_json %>% select (-sample_pass, -sample_coverage),
+    df_json,
     by = c("sample" = "sample_id", "experiment")
   ) %>%
   # rename drug columns
@@ -215,11 +214,6 @@ df_full <-
               .fn = ~ str_replace(., ".x", "_variant")) %>%
   rename_with(.cols = ends_with (".y"),
               .fn = ~ str_replace(., ".y", "_result"))
-
-df_full <-
-  full_join(df_full,
-            df_spol,
-             by = c("sample" = "sample_id", "experiment"))
 
 ## Add experiment information and correct sample_type info ----
 seq_df <- df_full %>%
@@ -596,7 +590,7 @@ write_csv(demographic_data, here("data/02_clean_demog.csv"))
 
 
 # Clean up ----
-rm(df_csv, df_json, df_spol, 
+rm(df_csv, df_json,
    targets_missed,
    nicd_tracker_df,
    cidrz_xpert, nicd_xpert, nicd_dst_df,

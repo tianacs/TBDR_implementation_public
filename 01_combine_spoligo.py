@@ -77,4 +77,4 @@ def extract_data(data, name):
 # Example usage
 directory_path = r'D:\Sequencing data\Results from updated pipeline (IFIK)\Output\IeDEA_reanalyzed_in_CH_output'
 df = combine_data_from_directory(directory_path)
-df.to_csv('data/wf_tb_amr_v2.0.0-alpha4_spoligo.csv', index=False)
+df.to_csv('data/wf_tb_amr_v2.0.0-alpha4_spoligo_v2.csv', index=False)

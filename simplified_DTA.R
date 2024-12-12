@@ -1,5 +1,36 @@
-# Simplified DTA analysis
+# Simplified DTA analysis including stratification
 
+# Combining the previous information from simplified_DTA.R and temp_stratified_analysis.R
+
+# Function to calculate TP, FP, FN, FN counts
+calculate_counts <- function(data, index_test, ref_test, group = NULL){
+  count_data <- data %>% 
+    # use "group by" conditionally
+    {if(!is.null(group)) group_by(., !!sym(group)) else .} %>% 
+    summarise(TP =sum(!!sym(index_test) =="resistant" & !!sym(ref_test) == "resistant", na.rm = T),
+              FP =sum(!!sym(index_test) =="resistant" & !!sym(ref_test) == "sensitive", na.rm = T),
+              FN =sum(!!sym(index_test) =="sensitive" & !!sym(ref_test) == "resistant", na.rm = T),
+              TN =sum(!!sym(index_test) =="sensitive" & !!sym(ref_test) == "sensitive", na.rm = T),
+              .groups = "drop" # Ensures the output is not grouped
+    )
+  # count_data <- count_data %>% 
+  #   mutate(test = row_name)
+  return(count_data)
+}
+
+# Define order of TB-drugs
+drug_order <- c("RIF", "INH", "EMB", "PZA",
+                "STM", "AMK", "CAP", "KAN", 
+                "ETH", "LFX", "MXF", "BDQ", 
+                "CFZ", "LZD", "DLM", "PMD")
+
+# Define the column headers
+headers <- c("Reference Test (drug)", "TP", "FP", "FN", "TN", 
+             "Sensitivity (95% CI)", "Specificity (95% CI)", 
+             "Sensitivity (95% CI)", "Specificity (95% CI)")
+
+
+# To be adjusted in 03_analysis.Rmd or in 02_data_preparation.R
 test_df <- dta_df %>% 
   mutate(result.sediment = case_when(result.sediment == "resistant" ~ "resistant",
                                      result.sediment == "sensitive" ~ "sensitive",
@@ -27,148 +58,60 @@ test_df <- dta_df %>%
          starts_with("result."))
 
 
-# Create counts
-calculate_counts <- function(data, index_test, ref_test, group = NULL){
-  count_data <- data %>% 
-    # use "group by" conditionally
-    {if(!is.null(group)) group_by(., !!sym(group)) else .} %>% 
-    summarise(TP =sum(!!sym(index_test) =="resistant" & !!sym(ref_test) == "resistant", na.rm = T),
-              FP =sum(!!sym(index_test) =="resistant" & !!sym(ref_test) == "sensitive", na.rm = T),
-              FN =sum(!!sym(index_test) =="sensitive" & !!sym(ref_test) == "resistant", na.rm = T),
-              TN =sum(!!sym(index_test) =="sensitive" & !!sym(ref_test) == "sensitive", na.rm = T),
-              .groups = "drop" # Ensures the output is not grouped
-    ) 
-  return(count_data)
-}
+# Create Figure 4: DTA between TBDR (sedi) compared to separate tests
+combined.overall <- calculate_counts(test_df, index_test = "result.sediment", ref_test = "result.combined") %>% 
+  mutate(test = "Total")
+combined.drugs <- calculate_counts(test_df, index_test = "result.sediment", ref_test = "result.combined", group = "drug") %>% 
+  mutate(drug = factor(drug, levels = drug_order),
+         test = drug) %>% 
+  arrange(drug)
 
-# Simplified code for DTA tables ----
-drug_order <- c("RIF", "INH", "EMB", "PZA",
-                "STM", "AMK", "CAP", "KAN", 
-                "ETH", "LFX", "MXF", "BDQ", 
-                "CFZ", "LZD", "DLM", "PMD")
-
-
-# Create forest plot
 forest_data <- bind_rows(
-  calculate_counts(test_df, "result.sediment", "result.combined") %>% 
-    mutate(test = "Total"),
-  calculate_counts(test_df, "result.sediment", "result.combined", "drug") %>% 
-    mutate(drug = factor(drug, levels = drug_order),
-           test = drug) %>% 
-    arrange(drug)) 
-
-# Define the column headers:
-headers <- c("Reference Test (drug)", "TP", "FP", "FN", "TN", 
-             "Sensitivity (95% CI)", "Specificity (95% CI)", 
-             "Sensitivity (95% CI)", "Specificity (95% CI)")
+  combined.overall, 
+  combined.drugs
+)
 
 Forest (forest_data, 
         study = forest_data$test,
         se.axis = c(0,1), sp.axis = c(0,1),
         col.headers = headers)
 
-
-# For GXPU 
+# Create a supplementary figure to stratify by GXPU
 b <- test_df %>%
   left_join(xpert_df %>% select(sequencing_id,
                                 lab_xpert_mtb_category),
-            by = "sequencing_id") %>%
+            by = "sequencing_id") %>% 
+  mutate(lab_xpert_mtb_category = case_when(lab_xpert_mtb_category == "high" ~ "high",
+                                            lab_xpert_mtb_category == "medium" ~ "medium",
+                                            TRUE ~ "low or lower"),
+         lab_xpert_mtb_category = factor(lab_xpert_mtb_category, levels = c("high", 
+                                                                            "medium", 
+                                                                            "low or lower")))
+
+b.counts <- b %>%
+  filter(drug == "RIF") %>% 
   calculate_counts("result.sediment", "result.combined", "lab_xpert_mtb_category") %>% 
-  mutate(test = as.character(lab_xpert_mtb_category))
+  mutate(test = as.character(lab_xpert_mtb_category)) 
 
-
-# Define the column headers:
-headers <- c("Reference Test (drug)", "TP", "FP", "FN", "TN", 
-             "Sensitivity (95% CI)", "Specificity (95% CI)", 
-             "Sensitivity (95% CI)", "Specificity (95% CI)")
-
-Forest (b, 
-        study = b$test,
+Forest (b.counts, 
+        study = b.counts$test,
         se.axis = c(0,1), sp.axis = c(0,1),
         col.headers = headers)
 
-library(epiR)
 
-# Function to calculate sensitivity, specificity, and 95% CI
-calculate_metrics <- function(data, index_col, reference_col) {
-  # Create contingency table
-  tbl <- table(data[[index_col]], data[[reference_col]])
-  
-  print(tbl)
-  
-  # Check if the table has at least one value in all required cells
-  if (all(dim(tbl) == c(2, 2)) && all(rowSums(tbl) > 0) && all(colSums(tbl) > 0)) {
-    # Calculate sensitivity, specificity, and CI
-    result <- epiR::epi.tests(tbl)
-    
-    # Extract the relevant statistics from the detail data frame
-    detail <- result$detail
-    
-    sensitivity <- detail %>% filter(statistic == "se")
-    specificity <- detail %>% filter(statistic == "sp")
-    
-    # Create a data frame with the extracted values
-    metrics <- data.frame(
-      Sensitivity = sensitivity$est,
-      Sensitivity_Lower_CI = sensitivity$lower,
-      Sensitivity_Upper_CI = sensitivity$upper,
-      Specificity = specificity$est,
-      Specificity_Lower_CI = specificity$lower,
-      Specificity_Upper_CI = specificity$upper
-    )
-    
-    # Return with all numeric values rounded to 2 decimal points
-    return(metrics %>% mutate(across(everything(), ~ round(.x, 2))))
-  }
-  else {
-    # Return NA for invalid tables
-    return(data.frame(
-      Sensitivity = NA,
-      Sensitivity_Lower_CI = NA,
-      Sensitivity_Upper_CI = NA,
-      Specificity = NA,
-      Specificity_Lower_CI = NA,
-      Specificity_Upper_CI = NA
-    ))
-  }}
+b.counts <- b %>%
+  filter(lab_xpert_mtb_category == "low or lower") %>% 
+  calculate_counts("result.sediment", "result.combined", group = "drug") %>% 
+  mutate(drug = factor(drug, levels = drug_order),
+         test = as.character(drug)) %>% 
+  arrange(drug)
 
-
-test_df %>% 
-  calculate_metrics(index_col = "result.sediment", reference_col = "result.xpert")
-
-calculate_metrics(test_df, index_col = "result.sediment", reference_col = "result.dst")
-
-calculate_metrics(test_df, index_col = "result.sediment", reference_col = "result.combined")
+Forest (b.counts, 
+        study = b.counts$test,
+        se.axis = c(0,1), sp.axis = c(0,1),
+        col.headers = headers)
 
 
 
 
-# Grouping doesn't work yet ----
-# Group by category and loop through groups
-results <- test_df %>%
-  left_join(xpert_df %>% select(sequencing_id,
-                                lab_xpert_mtb_category),
-            by = "sequencing_id") %>%
-  group_by(lab_xpert_mtb_category) %>% view()
-  group_split() %>% 
-  lapply(function(group_data){
-    calculate_metrics(group_data, index_col = "results.sediment", reference_col = "results.dst")
-  }) %>%
-  bind_rows(.id = "Category")
 
-# Print results
-print(results)
-
-# Group by category and loop through groups
-results <- test_df %>%
-  group_by(drug) %>%
-  group_split() %>%
-  lapply(function(group_data){
-    calculate_metrics(group_data, index_col = "results.sediment", reference_col = "results.combined")
-  }) %>%
-  bind_rows(.id = "Category")
-
-
-test_df %>% 
-  filter(str_detect(sequencing_id, "3511")) %>% 
-  calculate_metrics(index_col = "results.sediment", reference_col = "results.xpert")
