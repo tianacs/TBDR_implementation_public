@@ -389,7 +389,7 @@ sequencing_success_plot <- sequencing_success_plot +
 
 sequencing_success_plot 
 
-ggsave("figures/plot_sequencing_success.tiff", sequencing_success_plot, width = 26.8, height = 24.4, units = "cm", dpi = 300)
+#ggsave("figures/plot_sequencing_success.tiff", sequencing_success_plot, width = 26.8, height = 24.4, units = "cm", dpi = 300)
 ```
 
 ```{r}
@@ -603,7 +603,7 @@ table <- dta_df %>%
             XDR = sum(xdr_result %in% c("resistant", "sensitive"))) %>% 
   arrange() 
   #write_clip ()
-  flextable::flextable()
+flextable::flextable(table)
 ## ISSUE HERE: Not getting to the same number as "expanded with results"?
 ```
 
@@ -686,7 +686,7 @@ data_long %>%
   flextable::flextable()
 ```
 
-## Supplementary Table 6: Discrepancies in sputum and decontaminated samples ----
+## Supplementary Table 6: Discrepancies in sputum and decontaminated samples
 
 ```{r, include = TRUE}
 # Number of sample-drug combinations with interpretation

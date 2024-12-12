@@ -341,23 +341,26 @@ seq_unique <- seq_df %>%
   ungroup () %>% 
   ## Add eligibility (GXPU) information)
   left_join (xpert_df %>% select(-lab_xpert_mtb_ct, -lab_xpert_rif), by = "sequencing_id")
-  
 
 ## Save cleaned dataset of sequencing data of eligible samples  ----
 tngs_df <- seq_unique %>%
   # IeDEA_JNB_20240703_EXP018_25GT is the run of supplementary DR samples 
   filter(is_eligible | experiment == "IeDEA_JNB_20240703_EXP018_25GT",
-          pc_control,
-          ntc_control) %>% 
+         pc_control,
+         ntc_control,
+         # Remove YA00493057_sputum d.t mislabeling
+         !(sequencing_id == "YA00493057" & sample_type == "sputum")
+  ) %>% 
   ## Add if paired (sediment and sputum available)
   group_by(sequencing_id) %>%
-  mutate (is_paired = n_distinct (sample_type) > 1) %>%
-  ungroup ()
-  
+  mutate(is_paired = n_distinct (sample_type) > 1) %>%
+  ungroup()
+
 # TO FOLLOW UP: Two experiments from South Africa passed at the sites, but the positive control
 # failed with the new pipeline - why?
 
 tngs_df %>% summarise(n_distinct(sequencing_id))
+
 
 # Cleanup and save files
 tngs_df %>% 

@@ -16,7 +16,7 @@ contingency_ref <- test %>%
           dst_result = as.factor (combined_result))
 
 drug_data_ref <- contingency_ref %>% 
-  group_by(drug) %>% 
+  group_by(drug, lab_xpert) %>% 
   summarise(TP=sum(result =="resistant" & dst_result =="resistant"),
             FP=sum(result =="resistant" & dst_result =="sensitive"),
             FN=sum(result =="sensitive" & dst_result =="resistant"),
@@ -33,6 +33,8 @@ overall_dst_data_ref <- contingency_ref %>%
             TN= sum(result == "sensitive" & dst_result == "sensitive")) %>% 
   mutate(drug = "Overall") 
 
+
+# Step -2: Create the table for the forest plot
 
 combined_dta_table_ref <- bind_rows(overall_dst_data_ref,
                                     drug_data_ref) %>% 
@@ -55,7 +57,7 @@ combined_dta_table_ref <- bind_rows(overall_dst_data_ref,
                        DLM = "delamanid (DLM)"
   ))
 
-# Draw forest plot
+# Step -1: Draw forest plot
 Forest(combined_dta_table_ref, 
        study = combined_dta_table_ref$drug,
        se.axis = c(0,1), sp.axis = c(0,1),
