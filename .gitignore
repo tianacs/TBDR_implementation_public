@@ -1,5 +1,6 @@
 # Data - not to share for now
 data/*
+figures/*
 
 # History files
 .Rhistory
