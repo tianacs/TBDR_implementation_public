@@ -378,9 +378,8 @@ sequencing_success_plot <- sequencing_success_plot +
                     labels = c("fail", "successful")) +
   theme_bw () +
   theme(
-    text = element_text(size = 28),
+    text = element_text(size = 12),
     legend.position = "bottom",
-    #axis.text = element_text(size = 16) # Adjust the size of axis labels
     axis.text.x = element_text (angle = 45, hjust = 1)
   ) +
   # Adding percentage labels
@@ -390,7 +389,7 @@ sequencing_success_plot <- sequencing_success_plot +
     aes(label = paste(round(percent), "%"),
         group = qc_status),
     position = position_stack(vjust = 0.5),
-    size = 6
+    size = rel(1.0)
   )
 
 sequencing_success_plot 
@@ -446,7 +445,7 @@ plot <- plot +
   scale_fill_manual(values = c("#bdbdbd","#DEDEDE", 
                                "#dfc27d", "#DC863B","#5ab4ac")) +
   theme_bw () +
-  theme(text = element_text(size = 18),
+  theme(text = element_text(size = 12),
         axis.title.x = element_blank(),
         axis.text.x = element_text (angle = 45, hjust = 1),
         legend.position = "bottom",) +
