@@ -33,14 +33,19 @@ drug_order <- c("RIF", "INH", "EMB", "PZA",
                 "CFZ", "LZD", "DLM", "PMD")
 
 # Load data
-data <- read_csv(here("data/01_clean_tngs.csv"),
-                 show_col_types = FALSE)
-demographic_data <- read_csv(here("data/02_clean_demog.csv"),
-                             show_col_types = FALSE)
-data_long <- read_csv(here("data/03_clean_tngs_long.csv"),
-                      show_col_types = FALSE)  
-dta_df <- read_csv(here("data/04_clean_dta_data.csv"), 
-                   col_types = cols (lab_xpert_rif = col_character()))
+data <- readxl::read_excel("data.xlsx",
+                           sheet = "TBDR sequencing data",
+                           na = "NA")
+demographic_data <-readxl::read_excel("data.xlsx",
+                                      sheet = "demographic data",
+                                      na = "NA")
+data_long <- readxl::read_excel("data.xlsx",
+                                sheet = "TBDR drug-level data",
+                                na = "NA")
+dta_df <- readxl::read_excel("data.xlsx",
+                             sheet = "DTA data",
+                             na = "NA",
+                             col_types = c("text","text","text","text", "text","logical", "logical", "text","text","text","text","text","text","text","text","text","text","text"))
 
 # Make relevant columns factors
 data <- data %>% 
@@ -71,6 +76,7 @@ demographic_data <- demographic_data %>%
                                   TRUE ~ hiv_status),
          history_of_active_tb = case_when(is.na(history_of_active_tb) ~ "Unknown",
                                   TRUE ~ history_of_active_tb),
+         age = as.numeric(age)
          )  
 
 # Create a combined table, including NAs for specific variables and adding overall column
@@ -964,61 +970,4 @@ data_long %>%
   summarise (count = n_distinct(sequencing_id)) %>% 
   arrange (desc(count))
 
-# data_long %>% 
-#   filter(result == "resistant") %>% 
-#   group_by(sequencing_id) %>% 
-#   summarise (drugs = paste(unique(drug), collapse = ", ")) %>%
-#   gt::gt()
-```
-
-## Figure 2Alt: Success rates with complete/incomplete coverage
-
-```{r}
-# Sequencing coverage
-# Prepare data ----
-bar_data <- paired_data %>% 
-  # all groups of combinations
-  group_by (lab_xpert_mtb_category, site, sample_type, status_detailed) %>% 
-  summarize (count = n()) %>% 
-  ungroup () %>%
-  # Add percentages
-  group_by (lab_xpert_mtb_category, site, sample_type) %>% 
-  mutate(percent = count / sum(count) * 100) %>%
-  ungroup() %>% 
-  mutate (status_detailed = factor (status_detailed, levels = c("fail", "incomplete", "complete")))
-```
-
-```{r, include=TRUE}
-# Draw plot ----
-bar_plot <- ggplot (
-  bar_data, 
-  mapping = aes (x = sample_type, y = count, fill = status_detailed)) +
-  geom_bar(stat = "identity", position = "stack",
-            color = "black") +
-  facet_grid(site ~ lab_xpert_mtb_category, 
-             labeller = labeller(site = site.labs)) 
-
-# Aesthetics
-bar_plot <- bar_plot +
-  # Define look of the plot
-  scale_fill_manual(values = c("#899DA4", "#DC863B", "#5ab4ac")) +
-  theme_bw () +
-  # Define labels and their size
-  labs (x = "", 
-        fill = "Coverage", 
-        y = "No. of samples") +
-  theme(text = element_text (size= 18),
-        legend.position = "bottom",
-        axis.text.x = element_text (angle = 45, hjust = 1)) +
-  # Add percentage labels
-  geom_text(
-    data = subset(bar_data, status_detailed %in% c("complete", "incomplete")), #only label some of the groups
-    aes(label = paste(round(percent), "%"), 
-        group = status_detailed),
-    position = position_stack(vjust = 0.5), 
-    size = 4)
-
-bar_plot
-
-#ggsave("figures/plot_sequencing_success_detail.png", bar_plot, width = 26.8, height = 24.4, units = "cm")
 ```
