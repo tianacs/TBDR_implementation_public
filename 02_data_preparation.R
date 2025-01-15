@@ -201,7 +201,7 @@ dst_df <- bind_rows(redcap_dst_df, nicd_dst_df)
 # Prepare index test (TBDR) results ----
 ## Load data from new output ----
 df_csv  <- read_csv("data/wf_tb_amr_v2.0.0-alpha4_csv_v2.csv")
-df_json <- read_csv("data/wf_tb_amr_v2.0.0-alpha4_json_v2.csv")
+df_json <- read_csv("data/wf_tb_amr_v2.0.0-alpha4_json_v3.csv")
 
 df_full <-
   full_join (

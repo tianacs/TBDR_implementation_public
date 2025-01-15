@@ -63,6 +63,7 @@ def extract_data(data, name):
                 speciesID = sample['results']['species_identification']['detected_species'][0]['scientific_name']
             extracted_data.append({
                 'sample_id': sample['alias'],
+                'barcode': sample['barcode'],
                 #'sample_type': sample['sample_type'],
                 'experiment': name,
                 'ntc_control': ntc_control,
@@ -100,4 +101,4 @@ def extract_data(data, name):
 #directory_path = r'E:\Sequencing data\output'
 directory_path = r'D:\TBDR sequencing data\Results from updated pipeline (IFIK)\Output\IeDEA_reanalyzed_in_CH_output'
 df = combine_data_from_directory(directory_path)
-df.to_csv('data/wf_tb_amr_v2.0.0-alpha4_json_v2.csv', index=False)
+df.to_csv('data/wf_tb_amr_v2.0.0-alpha4_json_v3.csv', index=False)
