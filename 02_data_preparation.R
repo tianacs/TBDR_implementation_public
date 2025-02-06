@@ -200,20 +200,7 @@ dst_df <- bind_rows(redcap_dst_df, nicd_dst_df)
 
 # Prepare index test (TBDR) results ----
 ## Load data from new output ----
-df_csv  <- read_csv("data/wf_tb_amr_v2.0.0-alpha4_csv_v2.csv")
-df_json <- read_csv("data/wf_tb_amr_v2.0.0-alpha4_json_v3.csv")
-
-df_full <-
-  full_join (
-    df_csv,
-    df_json,
-    by = c("sample" = "sample_id", "experiment")
-  ) %>%
-  # rename drug columns
-  rename_with(.cols = ends_with (".x"),
-              .fn = ~ str_replace(., ".x", "_variant")) %>%
-  rename_with(.cols = ends_with (".y"),
-              .fn = ~ str_replace(., ".y", "_result"))
+df_full <- read_csv("data/tbdr_v2_output.csv")
 
 ## Add experiment information and correct sample_type info ----
 seq_df <- df_full %>%
