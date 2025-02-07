@@ -109,16 +109,7 @@ xpert_df <- bind_rows(cidrz_xpert, nicd_xpert, supp_xpert_data) %>%
            lab_xpert_mtb_category %in% c("trace", "very low") ~ FALSE,
            lab_xpert_mtb_category %in% c("low", "medium", "high") ~ TRUE
            # Eligible samples have a Xpert Ultra bacterial load category of "high", "medium" or "low"
-           # CHECK THIS WITH CIDRZ - 3511-308 and 3511-367 are "MTB not detected" but have a GXPU category of "Medium" or "Low"
-         ))
-
-# Previously used a "smaller" df, but this seems unnecessary
-# xpert_mini <- xpert_df %>% 
-#   select (sequencing_id,
-#           lab_xpert_mtb_result,
-#           lab_xpert_mtb_category, 
-#           sample_volume,
-#           is_eligible)
+           ))
 
 ## Xpert MTB/XDR information ----
 nicd_xdr_df <- nicd_tracker_df %>% 
@@ -180,14 +171,6 @@ nicd_dst_df <- nicd_tracker_df %>%
   # Correct spelling mistake
   mutate (mgit_result = case_when (mgit_result == "Positve MTB" ~ "Positive MTB",
                                    TRUE ~ mgit_result))
-
-# Phenotypic DST and WGS results for supplementary DR samples (retrospective)
-supp_DST_data <- supp_DST_df.clean %>% 
-  select(-starts_with("lab_xpert")) %>% 
-  mutate(mgit_result = case_when(mgit_result == "Pos" | mgit_result == "pos" ~ "Positive MTB", 
-                                 TRUE ~ mgit_result))
-# Currently I'm not using this anywhere, but keep it for now.
-# Redundant with supp_DST_long in line 440
 
 dst_df <- bind_rows(redcap_dst_df, nicd_dst_df)
 
@@ -473,8 +456,6 @@ xdr_long <- nicd_xdr_df %>%
     )
   ) %>% 
   ungroup()
-
-
 
 # Combine index and reference test results for DTA analysis ----
 ## For index test (TBDR) need one row per sample and drug (results from sediment and sputum in wide format) ----
